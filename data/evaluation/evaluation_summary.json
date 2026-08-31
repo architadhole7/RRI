@@ -1,0 +1,29 @@
+{
+  "total_transactions": 5000,
+  "total_at_risk_amount": 4486319.02,
+  "baseline_recovered_amount": 2209788.88,
+  "baseline_recovery_rate": 0.4926,
+  "revenueguard_automated_recovered_amount": 2049013.39,
+  "revenueguard_human_approved_recovered_amount": 107911.95,
+  "total_recovered_amount": 2156925.34,
+  "recovery_rate": 0.4808,
+  "incremental_recovery_amount": -52863.54,
+  "incremental_recovery_lift_pct": -2.39,
+  "net_recovery": 2077609.34,
+  "intervention_count": 4914,
+  "total_action_cost": 52818.0,
+  "contact_count": 433,
+  "escalation_count": 812,
+  "action_breakdown": {
+    "RETRY_NOW": 954,
+    "RETRY_LATER": 2715,
+    "NOTIFY_CUSTOMER": 433,
+    "ESCALATE": 812,
+    "STOP": 86
+  },
+  "unsafe_actions_blocked": 0,
+  "approval_required_count": 29,
+  "approval_approved_count": 29,
+  "approval_denied_count": 0,
+  "policy_denied_count": 0
+}

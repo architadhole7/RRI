@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RevenueGuard — AI Revenue Recovery Operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation Header -->
+    <header class="header">
+      <div class="brand-section">
+        <div class="logo-mark">RG</div>
+        <div class="brand-info">
+          <div class="brand-title-row">
+            <h1 class="brand-title">RevenueGuard</h1>
+            <span class="version-tag" id="appVersion">v0.1.0</span>
+          </div>
+          <span class="brand-subtitle">AI Revenue Recovery Decision & Orchestration Platform</span>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="system-status-group">
+          <span class="status-pill status-live" id="systemLivePill">
+            <span class="pulse-dot"></span> System Operational
+          </span>
+          <span class="status-pill status-policy">
+            <span class="shield-icon">🛡️</span> Policy Engine: Active
+          </span>
+          <span class="status-pill status-audit" id="auditVerifiedPill">
+            <span class="chain-icon">⛓️</span> Hash Chain: Verified
+          </span>
+        </div>
+
+        <div class="operator-profile">
+          <div class="operator-avatar">👤</div>
+          <div class="operator-details">
+            <span class="operator-label">Authorized Operator</span>
+            <span class="operator-name" id="operatorNameDisplay">Merchant Operations Admin</span>
+            <span class="operator-note">(Configured display identity)</span>
+          </div>
+        </div>
+
+        <button id="killSwitchBtn" class="btn btn-killswitch" onclick="toggleKillSwitch()" title="Emergency shutoff for all automated recovery actions">
+          <span class="killswitch-icon">⚡</span>
+          <span id="killSwitchText">Kill Switch OFF</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Global Alert Banner (if Kill Switch is active) -->
+    <div id="killSwitchBanner" class="kill-switch-banner hidden">
+      <div class="banner-content">
+        <span class="banner-icon">⚠️</span>
+        <div>
+          <strong>EMERGENCY KILL SWITCH IS ACTIVE:</strong> All automated recovery interventions are blocked fail-closed. No recovery actions will execute.
+        </div>
+      </div>
+      <button class="btn btn-sm btn-light" onclick="toggleKillSwitch()">Resume Operations</button>
+    </div>
+
+    <main class="main-content">
+      <!-- Interactive Operations & Demo Control Bar -->
+      <section class="card demo-controls-bar">
+        <div class="flex-between">
+          <div>
+            <span class="badge badge-info">MERCHANT OPERATIONS CONSOLE</span>
+            <h3 class="card-title" style="margin-top: 4px;">Live Recovery Operations & Demo Workflows</h3>
+            <span class="card-caption">Execute deterministic test payments through the full AI recommendation, deterministic policy engine, human approval gate, and orchestrator.</span>
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="btnRunDemoTxn" onclick="runDemoTransaction()">
+              <span>⚡</span> Run Demo Transaction (₹12,500 High-Value)
+            </button>
+            <button class="btn btn-secondary" id="btnRunBlockedDemo" onclick="runBlockedScenario()">
+              <span>🚫</span> Run Blocked Scenario (Policy Denial)
+            </button>
+            <button class="btn btn-secondary" onclick="initDashboard()">
+              <span>🔄</span> Refresh State
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Key Financial Metrics Grid -->
+      <section class="section-container">
+        <div class="section-title-row">
+          <h2 class="section-heading">Revenue Recovery Overview</h2>
+          <span class="section-caption">Real-time metrics calculated by the RevenueGuard Evaluation Engine</span>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Revenue at Risk</span>
+              <span class="kpi-icon">📉</span>
+            </div>
+            <div class="kpi-value" id="revenueAtRisk">₹0.00</div>
+            <div class="kpi-sub" id="txnTotalCount">Across 0 failed transactions</div>
+          </div>
+
+          <div class="kpi-card kpi-card-highlight">
+            <div class="kpi-header">
+              <span class="kpi-title">Recovered Revenue</span>
+              <span class="kpi-icon">💰</span>
+            </div>
+            <div class="kpi-value" id="revenueRecovered">₹0.00</div>
+            <div class="kpi-sub" id="recoveryRate">0.00% Recovery Rate</div>
+          </div>
+
+          <div class="kpi-card kpi-card-lift">
+            <div class="kpi-header">
+              <span class="kpi-title">Incremental Lift vs. Baseline</span>
+              <span class="kpi-icon">📊</span>
+            </div>
+            <div class="kpi-value" id="incrementalLift">₹0.00</div>
+            <div class="kpi-sub" id="liftPct">0.00% vs. Fixed Retry Baseline</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Net Recovery Value</span>
+              <span class="kpi-icon">✨</span>
+            </div>
+            <div class="kpi-value" id="netRecovery">₹0.00</div>
+            <div class="kpi-sub">Deducted action costs & customer friction</div>
+          </div>
+
+          <div class="kpi-card kpi-card-warning" onclick="scrollToSection('approvalsSection')">
+            <div class="kpi-header">
+              <span class="kpi-title">Pending Approvals</span>
+              <span class="kpi-icon">⏳</span>
+            </div>
+            <div class="kpi-value" id="approvalCount">0</div>
+            <div class="kpi-sub">High-value interventions awaiting sign-off</div>
+          </div>
+
+          <div class="kpi-card kpi-card-danger" onclick="scrollToSection('blockedSection')">
+            <div class="kpi-header">
+              <span class="kpi-title">Blocked Unsafe Actions</span>
+              <span class="kpi-icon">🚫</span>
+            </div>
+            <div class="kpi-value" id="blockedCount">0</div>
+            <div class="kpi-sub">Prevented by deterministic policy guards</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Operations & Safety Architecture Grid -->
+      <div class="two-col-grid">
+        <!-- Recovery Action Distribution -->
+        <section class="card">
+          <div class="card-header">
+            <h3 class="card-title">Recovery Action Breakdown</h3>
+            <span class="card-caption">Distribution of selected recovery interventions</span>
+          </div>
+          <div id="breakdownList" class="breakdown-list">
+            <div class="loading-state">Loading action distribution...</div>
+          </div>
+        </section>
+
+        <!-- Deterministic Policy Guarantees -->
+        <section class="card">
+          <div class="card-header">
+            <h3 class="card-title">Deterministic Safety & Policy Controls</h3>
+            <span class="card-caption">Authority boundary strictly enforced over AI recommendations</span>
+          </div>
+          <div class="guarantees-list">
+            <div class="guarantee-card">
+              <div class="guarantee-status">ACTIVE</div>
+              <div class="guarantee-info">
+                <strong>Deterministic Retry Cooldown (24h)</strong>
+                <p>Prevents redundant retries and gateway rate-limiting</p>
+              </div>
+            </div>
+            <div class="guarantee-card">
+              <div class="guarantee-status">ACTIVE</div>
+              <div class="guarantee-info">
+                <strong>Consent & Opt-Out Enforcement</strong>
+                <p>Blocks customer contact if consent is withheld or contact limits exceeded</p>
+              </div>
+            </div>
+            <div class="guarantee-card">
+              <div class="guarantee-status">ACTIVE</div>
+              <div class="guarantee-info">
+                <strong>High-Value Human Approval Threshold (₹5,000)</strong>
+                <p>Interventions on high-value payments require merchant authorization</p>
+              </div>
+            </div>
+            <div class="guarantee-card">
+              <div class="guarantee-status">ACTIVE</div>
+              <div class="guarantee-info">
+                <strong>Zero AI Financial Execution Authority</strong>
+                <p>AI/LLM produces recommendation; Policy Engine governs execution</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Pending Approvals Section -->
+      <section class="card" id="approvalsSection">
+        <div class="card-header flex-between">
+          <div>
+            <h3 class="card-title">Pending Human Approvals</h3>
+            <span class="card-caption">Interventions paused by policy engine awaiting authorized operator sign-off</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" onclick="fetchApprovals()">Refresh Approvals</button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="approvalsTable">
+            <thead>
+              <tr>
+                <th>Approval ID</th>
+                <th>Transaction ID</th>
+                <th>Amount</th>
+                <th>Proposed Action</th>
+                <th>Policy Gate Reason</th>
+                <th>Status</th>
+                <th>Created At</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="approvalsTableBody">
+              <tr>
+                <td colspan="8" class="empty-cell">Loading pending approvals...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Blocked Actions Section -->
+      <section class="card" id="blockedSection">
+        <div class="card-header flex-between">
+          <div>
+            <h3 class="card-title">Blocked Actions & Interventions</h3>
+            <span class="card-caption">What did RevenueGuard prevent? Unsafe or non-compliant recovery attempts</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" onclick="fetchBlockedActions()">Refresh Blocked</button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="blockedTable">
+            <thead>
+              <tr>
+                <th>Transaction ID</th>
+                <th>Amount</th>
+                <th>Attempted Action</th>
+                <th>Guard Decision</th>
+                <th>Violation / Block Reason</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="blockedTableBody">
+              <tr>
+                <td colspan="6" class="empty-cell">Loading blocked actions...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Transaction Explorer & Deep Journey Inspector -->
+      <section class="card" id="explorerSection">
+        <div class="card-header flex-between">
+          <div>
+            <h3 class="card-title">Transaction Explorer</h3>
+            <span class="card-caption">Inspect failed payments, diagnosis, EV ranking, and end-to-end decision journeys</span>
+          </div>
+          <div class="search-toolbar">
+            <input type="text" id="txnSearchInput" class="search-input" placeholder="Search payment ID, customer, failure..." onkeyup="if(event.key==='Enter') searchTransactions()">
+            <button class="btn btn-primary btn-sm" onclick="searchTransactions()">Search</button>
+          </div>
+        </div>
+
+        <div class="filter-tabs">
+          <button class="tab-btn active" data-filter="ALL" onclick="setFilter('ALL')">All Transactions</button>
+          <button class="tab-btn" data-filter="EXECUTED" onclick="setFilter('EXECUTED')">Executed</button>
+          <button class="tab-btn" data-filter="RECOVERED" onclick="setFilter('RECOVERED')">Recovered</button>
+          <button class="tab-btn" data-filter="NEEDS_HUMAN_APPROVAL" onclick="setFilter('NEEDS_HUMAN_APPROVAL')">Needs Approval</button>
+          <button class="tab-btn" data-filter="BLOCKED" onclick="setFilter('BLOCKED')">Blocked</button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="transactionsTable">
+            <thead>
+              <tr>
+                <th>Payment ID</th>
+                <th>Customer ID</th>
+                <th>Amount</th>
+                <th>Method</th>
+                <th>Diagnosed Failure</th>
+                <th>Status</th>
+                <th>Created At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="transactionsTableBody">
+              <tr>
+                <td colspan="8" class="empty-cell">Loading transactions...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Interactive Policy Simulator -->
+      <section class="card" id="simulatorSection">
+        <div class="card-header">
+          <h3 class="card-title">Interactive Policy Simulator</h3>
+          <span class="card-caption">Test how adjusting merchant policy constraints impacts recovery rate and revenue lift against the 5,000 transaction dataset.</span>
+        </div>
+
+        <div class="simulator-layout">
+          <div class="sim-controls-panel">
+            <div class="control-field">
+              <div class="control-label-row">
+                <label for="simMaxRetries">Max Automated Retries</label>
+                <span class="slider-value" id="valMaxRetries">3</span>
+              </div>
+              <input type="range" id="simMaxRetries" min="1" max="5" value="3" step="1" oninput="document.getElementById('valMaxRetries').innerText=this.value">
+              <span class="field-hint">Retry ceiling before dropping to STOP or ESCALATE</span>
+            </div>
+
+            <div class="control-field">
+              <div class="control-label-row">
+                <label for="simApprovalThresh">Human Approval Threshold (₹)</label>
+                <span class="slider-value" id="valApprovalThresh">₹5,000</span>
+              </div>
+              <input type="range" id="simApprovalThresh" min="1000" max="25000" value="5000" step="1000" oninput="document.getElementById('valApprovalThresh').innerText='₹' + Number(this.value).toLocaleString()">
+              <span class="field-hint">Payments exceeding this value require operator sign-off</span>
+            </div>
+
+            <div class="control-field">
+              <div class="control-label-row">
+                <label for="simContactLimit">Customer Contact Limit</label>
+                <span class="slider-value" id="valContactLimit">2</span>
+              </div>
+              <input type="range" id="simContactLimit" min="1" max="5" value="2" step="1" oninput="document.getElementById('valContactLimit').innerText=this.value">
+              <span class="field-hint">Maximum outreach attempts per customer billing cycle</span>
+            </div>
+
+            <button class="btn btn-primary btn-block" id="runSimBtn" onclick="runPolicySimulation()">
+              <span class="sim-btn-icon">⚡</span> Run Policy Simulation
+            </button>
+            <p class="sim-disclaimer">ℹ️ Safe simulation: Runs on benchmark dataset without executing real financial transactions.</p>
+          </div>
+
+          <div class="sim-results-panel" id="simResultsPanel">
+            <div class="sim-placeholder">
+              <div class="sim-icon">📊</div>
+              <h4>Configure policy parameters & run simulation</h4>
+              <p>Compare baseline vs simulated revenue recovery, approval counts, and safety blocks.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tamper-Evident Audit Trail -->
+      <section class="card" id="auditSection">
+        <div class="card-header flex-between">
+          <div>
+            <h3 class="card-title">Tamper-Evident Audit Activity Trail</h3>
+            <span class="card-caption">Cryptographically linked SHA-256 hash chain recording every decision, policy check, and execution</span>
+          </div>
+          <div class="audit-actions">
+            <button class="btn btn-sm btn-outline-success" onclick="verifyAuditChain()">
+              <span class="verify-icon">✓</span> Verify Hash Chain Integrity
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="fetchAuditLogs()">Refresh Trail</button>
+          </div>
+        </div>
+
+        <div id="auditVerifyStatusBox" class="audit-verify-banner hidden"></div>
+
+        <div class="table-container">
+          <table class="data-table" id="auditTable">
+            <thead>
+              <tr>
+                <th>Timestamp (UTC)</th>
+                <th>Event Type</th>
+                <th>Transaction ID</th>
+                <th>Action</th>
+                <th>Policy Result</th>
+                <th>Outcome</th>
+                <th>Cryptographic SHA-256 Hash</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody">
+              <tr>
+                <td colspan="7" class="empty-cell">Loading audit logs...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- Operator Approval Review Modal -->
+    <div id="approvalModal" class="modal-overlay hidden" onclick="if(event.target===this) closeApprovalModal()">
+      <div class="modal-card modal-card-sm">
+        <div class="modal-header">
+          <div>
+            <span class="badge badge-approval">OPERATOR AUTHORIZATION REQUIRED</span>
+            <h3 class="modal-title" id="approvalModalTitle" style="margin-top: 4px;">Review High-Value Intervention</h3>
+            <span class="modal-subtitle">Authorized Merchant Operator Review & Execution Boundary</span>
+          </div>
+          <button class="modal-close-btn" onclick="closeApprovalModal()">&times;</button>
+        </div>
+
+        <div class="modal-body" id="approvalModalBody">
+          <div class="loading-state">Loading approval details...</div>
+        </div>
+
+        <div class="modal-footer" id="approvalModalFooter">
+          <button class="btn btn-secondary" onclick="closeApprovalModal()">Cancel</button>
+          <button class="btn btn-danger" id="btnModalDeny">Deny Action</button>
+          <button class="btn btn-success" id="btnModalApprove">Approve & Execute</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transaction Decision Journey Modal -->
+    <div id="journeyModal" class="modal-overlay hidden" onclick="if(event.target===this) closeJourneyModal()">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title" id="journeyModalTitle">Decision Journey: Transaction pay_000001</h3>
+            <span class="modal-subtitle">Explainable 10-step AI intelligence & deterministic policy execution path</span>
+          </div>
+          <button class="modal-close-btn" onclick="closeJourneyModal()">&times;</button>
+        </div>
+
+        <div class="modal-body" id="journeyModalBody">
+          <div class="loading-state">Loading decision journey...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-content">
+        <span>RevenueGuard AI Revenue Recovery Platform v0.1.0</span>
+        <span class="footer-sep">•</span>
+        <span>Deterministic Financial Safety Controls Active</span>
+        <span class="footer-sep">•</span>
+        <span>Tamper-Evident Hash Chained Audit Trail</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

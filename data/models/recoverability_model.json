@@ -1,0 +1,26 @@
+{
+  "model_type": "RecoverabilityLogisticModel",
+  "version": "1.0.0",
+  "weights": {
+    "bias": -1.2,
+    "amount_log": -0.05,
+    "retry_count": -0.45,
+    "is_network": 0.8,
+    "is_funds": 0.2,
+    "is_expired": -1.5,
+    "is_declined": -0.3,
+    "is_limit": 0.1,
+    "is_temp": 0.5,
+    "is_upi": 0.15,
+    "is_card": 0.05,
+    "is_act_retry_now": 0.25,
+    "is_act_retry_later": 0.4,
+    "is_act_notify": 0.35,
+    "is_act_escalate": 0.1,
+    "is_act_stop": -3.0,
+    "consent": 0.6,
+    "risk_score": -0.8,
+    "contact_count": -0.3,
+    "succ_rate": 0.5
+  }
+}

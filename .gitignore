@@ -1,0 +1,42 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+ENV/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & OS specific
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Runtime / generated data
+data/audit_trail.jsonl
+data/test_eval_output/
+data/test_reports_out/
+
+# Local generated datasets
+data/processed/
+
+# Ground-truth simulator data
+data/ground_truth/
+
+# Local model artifacts
+# Uncomment if models are regenerated locally and should not be committed
+# data/models/
+
+# Logs
+*.log
