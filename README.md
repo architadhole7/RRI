@@ -1,275 +1,203 @@
-# RevenueGuard — AI Revenue Recovery Decision & Orchestration Agent
+# RevenueGuard
 
-RevenueGuard is an **AI Revenue Recovery Decision & Orchestration Agent** designed to systematically diagnose failed payment events, evaluate candidate interventions based on net expected economic value, enforce strict deterministic safety/compliance policies, and orchestrate optimal recovery workflows.
-
----
-
-## 1. Project Overview
-
-In subscription, SaaS, e-commerce, and digital finance platforms, payment failures account for substantial revenue churn. Standard retry mechanisms are rigid and inefficient—retrying randomly or spamming customers leads to high bank fees, account blocks, customer friction, and permanent customer churn.
-
-RevenueGuard replaces ad-hoc retries with a bounded, economically driven intelligence pipeline governed by the central architectural principle:
-
-> **LLM recommends → deterministic policy validates → orchestrator executes.**
-
-The system ensures that artificial intelligence optimizes strategy ranking, while deterministic rules guarantee financial safety, consent compliance, rate limits, and auditability.
+An AI-assisted revenue recovery decision and orchestration platform that recommends, validates, and safely executes payment recovery actions — with deterministic policy control and human approval at every high-stakes step.
 
 ---
 
-## 2. Problem Statement
+## Overview
 
-Merchants face critical decision challenges whenever a payment fails:
-1. **Which failed or at-risk payment events are worth recovering?**
-2. **What intervention is most economically valuable?** (e.g. `RETRY_NOW`, `RETRY_LATER`, `NOTIFY_CUSTOMER`, `ESCALATE`, `STOP`)
-3. **When should automated recovery stop?**
-4. **When should human approval be required?**
-5. **How much incremental revenue does the AI strategy generate compared with a fixed-policy baseline?**
+When a payment fails, merchants lose recoverable revenue every day to two failure modes: retrying too aggressively (unnecessary attempts and poor recovery decisions) or retrying too conservatively (recoverable revenue left unrealized). RevenueGuard closes that loop end-to-end — from detecting revenue at risk, through AI-assisted diagnosis and recommendation, to deterministic policy validation, human approval where required, and finally orchestrated execution — with every decision captured in a tamper-evident audit trail.
+
+RevenueGuard is not a chatbot, an LLM wrapper, or a blind retry engine. It's a controlled recovery **decisioning system**: the AI reasons about the best action, but it never has direct financial execution authority. That authority is bounded by a deterministic policy engine and, for high-value or risky actions, a human operator.
 
 ---
 
-## 3. Why Existing Approaches Are Insufficient
+## Problem Statement
 
-- **Generic Payment Retries**: Standard payment gateways use dumb linear retries (e.g., retry 3 times every 24h). They fail to distinguish temporary network timeouts from expired cards or hard bank blocks.
-- **Unchecked AI Chatbots / Agents**: Placing LLMs directly in control of payment retries or financial transactions invites prompt injection attacks, infinite retry loops, unauthorized charges, and severe compliance violations.
-- **Lack of Baseline Evaluation**: Existing recovery vendors report raw recovery numbers without benchmarking against standard fixed rules on identical held-out test data.
+- **Payment failures cause real, recoverable revenue loss.** Not every failure is the same, and treating them uniformly wastes both money and customer goodwill.
+- **Blind retrying is not a strategy.** Retrying every failure uniformly can lead to unnecessary attempts and poor recovery decisions, while overly conservative strategies leave recoverable revenue unrealized.
+- **Unchecked automation is a risk.** Letting an AI system directly execute financial actions — retries, charges, escalations — without guardrails invites unsafe or unauthorized behavior.
+- **Merchants need controlled recovery decisioning**: a system that diagnoses *why* a payment failed, decides *whether* recovery is worthwhile, recommends the *best* action, and only acts within clearly defined, auditable boundaries.
 
 ---
 
-## 4. RevenueGuard Architecture
+## Why RevenueGuard?
 
-```text
-Payment / Customer Events
-        ↓
-Data Ingestion & Integrity Validation
-        ↓
-Failure Diagnosis (RRI Engine)
-        ↓
-Recoverability Prediction (ML Model)
-        ↓
-Candidate Action Generation & Expected-Value Decision Engine
-        ↓
-Deterministic Policy & Safety Engine (Max Retries, Cooldown, Consent, High-Value Approval)
-        ↓
-AI Decision Layer (Structured Reasoning & Recommendations)
-        ↓
-Action Orchestrator (Idempotency, Queue, Execution)
-        ↓
-Recovery Simulator (Ground-Truth Controlled Environment)
-        ↓
-Outcome & Audit Trail (PII-Masked Tamper-Evident Logs)
-        ↓
-Analytics & Merchant Dashboard
+RevenueGuard is deliberately **not** just a smarter retry bot. It closes the full loop:
+
+**Detection → Diagnosis → Recommendation → Policy Validation → Approval → Execution → Audit**
+
+The core design principle:
+
+> **AI recommends. Deterministic policy controls. Humans approve high-value or risky actions. The orchestrator executes only what's permitted. Every decision is auditable.**
+
+The AI layer is genuinely useful — it reasons over diagnosis, recoverability, and expected value to recommend the best next action — but it is always subordinate to a deterministic policy layer that cannot be overridden by model output, and to human sign-off when a transaction crosses a defined risk/value boundary.
+
+---
+
+## Core Architecture
+
+```mermaid
+flowchart TD
+    A[Payment Failure] --> B[Failure Diagnosis]
+    B --> C[Recoverability / Intelligence]
+    C --> D[Candidate Recovery Actions + Expected Value]
+    D --> E[AI Recommendation]
+    E --> F[Deterministic Policy Guard]
+    F -->|Requires Approval| G[Human Approval]
+    F -->|Auto-Permitted| H[Orchestrator Execution]
+    G -->|Approved| H
+    G -->|Denied| K[Blocked / Stopped]
+    F -->|Denied by Policy| K
+    H --> I[Outcome]
+    I --> J[Tamper-Evident Audit Trail]
+    K --> J
 ```
 
----
-
-## 5. Core System Flow
-
-1. **Failure Ingestion**: Failed transaction context is ingested and validated against Pydantic domain schemas.
-2. **Diagnosis**: Mapped into standardized categories (`INSUFFICIENT_FUNDS`, `NETWORK_ERROR`, `EXPIRED_PAYMENT_METHOD`, `BANK_DECLINED`, `LIMIT_EXCEEDED`, `TEMPORARY_FAILURE`, `UNKNOWN`).
-3. **ML Recoverability Scoring**: Predicts $P(\text{recovery} \mid \text{action})$ for candidate actions without outcome feature leakage.
-4. **Expected-Value Calculation**: Evaluates net economic value:
-   $$\text{EV}(a) = P(\text{recovery} \mid a) \times \text{amount} - \text{cost}(a) - \text{friction}(a) - \text{risk}(a)$$
-5. **Deterministic Policy Check**: Hard policy guard evaluates rules (`ALLOW`, `DENY`, `NEEDS_HUMAN_APPROVAL`).
-6. **Agent Recommendation**: AI layer synthesizes reasoning while bound strictly to policy decisions.
-7. **Orchestrated Execution & Audit**: Action executed through simulator/gateway with idempotency tracking and immutable audit logging.
+The AI recommendation sits *inside* the pipeline, not above it. Nothing the AI suggests reaches execution without passing through the deterministic policy guard, and nothing above the approval threshold executes without a human decision.
 
 ---
 
-## 6. System Components
+## How RevenueGuard Makes a Recovery Decision
 
-- `backend/ingestion`: Pydantic domain models, integrity validators, and loaders.
-- `backend/simulator`: Reproducible synthetic payment world generator and outcome simulator.
-- `backend/intelligence`: RRI failure diagnoser, leakage-free feature extractor, and ML recoverability models.
-- `backend/decisioning`: Expected-value decision engine and fixed-policy baseline strategy.
-- `backend/policy`: Deterministic policy rules, policy engine, and human approval queue.
-- `backend/agent`: Bounded AI recommendation layer with deterministic fallbacks.
-- `backend/orchestrator`: Action executor, idempotency manager, and execution queue.
-- `backend/security`: Threat detection (prompt injection, replays), input sanitizer, RBAC authorization, and emergency Kill Switch.
-- `backend/audit`: Tamper-evident audit logger with PII masking.
-- `backend/analytics`: Baseline vs. RevenueGuard evaluation pipeline and report generators.
-- `frontend/dashboard`: Responsive dark-mode single-page merchant dashboard with live metrics, transaction explorer, and interactive policy simulator.
+Each failed payment moves through four distinct layers of decision-making, kept intentionally separate:
+
+1. **AI Recommendation** — Given the failure diagnosis, recoverability signal, and expected-value-ranked candidate actions, the AI layer proposes a recommended action and reasoning.
+2. **Deterministic Policy Enforcement** — A rules engine — independent of the AI and non-overridable by it — evaluates the recommendation against hard constraints (e.g. value thresholds, risk limits, cooldowns, consent) and returns an explicit allow, deny, or "requires human approval" result.
+3. **Human Authorization** — When policy flags a transaction as high-value or high-risk, a human operator reviews the diagnosis, recommendation, and policy context, then explicitly approves or denies the action.
+4. **Orchestrated Execution** — Only actions that clear both policy and (where required) human approval are executed. The orchestrator executes permitted actions and records the outcome.
+
+This separation is what lets RevenueGuard make use of AI reasoning without giving AI financial execution authority.
 
 ---
 
-## 7. Synthetic Environment
+## Safety & Governance
 
-Generates reproducible payment ecosystems with realistic correlations:
-- **Merchants**: Categories, risk profiles.
-- **Customers**: Payment method preferences, subscription status, consent states (`consent_to_contact`), risk indicators.
-- **Transactions & Failures**: Amounts, timestamps, error codes, retry counts.
-- **Ground Truth**: Hidden true recovery probabilities $P_{\text{true}}(\text{recovery} \mid \text{action})$ kept strictly separate from observable model features.
+RevenueGuard's safety story is about **controlled AI decisioning**, not a claim of production-grade security. The following governance and safety controls are implemented:
 
----
+- **Deterministic policy enforcement** — hard rules the AI cannot override
+- **Human approval gating** — required for actions above the defined value/risk boundary
+- **Kill switch** — halts automated recovery actions
+- **Blocked-action recording** — unsafe or policy-denied actions are captured, not silently dropped
+- **SHA-256 tamper-evident audit hash chaining** — every recorded decision is chained and verifiable
+- **Audit-chain integrity verification** — the chain can be checked for tampering
+- **PII masking** — sensitive fields are masked before persistence
+- **Static-route / security isolation** — separation between static assets and application routes
 
-## 8. Recovery Simulator
-
-Simulates 5 candidate actions deterministically via seedable pseudo-random rolls:
-- `RETRY_NOW`: Immediate gateway retry (low cost, high friction if repeated).
-- `RETRY_LATER`: Scheduled retry after optimal 24h cooldown.
-- `NOTIFY_CUSTOMER`: SMS/Email notification (high friction if customer opted out).
-- `ESCALATE`: Human merchant operator intervention (higher cost ₹50, high success on bank blocks).
-- `STOP`: Terminate recovery to eliminate costs.
+These are safeguards around how AI-assisted recommendations are allowed to affect real actions — they are not a claim that the system is "100% secure" or production-hardened.
 
 ---
 
-## 9. Decision Engine
+## Human Approval Workflow
 
-Evaluates all candidate actions and ranks them by Net Expected Value (EV). If top non-STOP candidate has $\text{EV} \le 0$, the engine automatically falls back to `STOP`.
+When a candidate recovery action crosses the defined value or risk boundary, the transaction enters a **human approval queue** rather than executing automatically. The operator reviewing the queue sees:
 
----
+- The failure diagnosis
+- The AI's recommended action and reasoning
+- The expected-value context behind that recommendation
+- The deterministic policy engine's decision and rationale
 
-## 10. Deterministic Policy Engine
-
-Hard safety rules that can **NEVER** be overridden by LLMs:
-- **Max Retries**: Max 3 retries per transaction.
-- **Cooldown**: 24-hour mandatory retry cooldown.
-- **Consent Checks**: Do not contact customers who opted out.
-- **High-Value Threshold**: Transactions $\ge ₹5,000$ require explicit human merchant approval.
-- **Customer Risk Limit**: Risk scores $> 0.8$ trigger human review.
-- **Emergency Kill Switch**: Immediately halts all automated recovery actions globally.
+From there, the operator can **Approve & Execute** or **Deny**. Nothing above the approval boundary reaches the orchestrator without this explicit human decision.
 
 ---
 
-## 11. AI Agent Layer
+## Live Demo Workflow
 
-Receives structured quantitative context and outputs `AgentRecommendation`. If API keys are unconfigured or calls fail, a deterministic fallback seamlessly synthesizes reasoning directly from EV scores and policy rules.
+RevenueGuard includes a working, interactive demo built for a 5-minute walkthrough:
 
----
+1. Open **Overview**.
+2. Click **Run Demo Transaction** — a deterministic ₹12,500 failed-payment scenario enters the recovery pipeline.
+3. The transaction is diagnosed, a recommendation and expected value are generated, and the policy engine flags it for **human approval**.
+4. Navigate to **Approvals** and open the review.
+5. Review the failure diagnosis, AI recommendation, expected-value context, and policy decision.
+6. Click **Approve & Execute** — the orchestrator executes the permitted action.
+7. The transaction status updates.
+8. Navigate to **Transactions** and inspect the transaction's full decision journey.
+9. Trigger the **blocked scenario** separately — the deterministic policy engine blocks an unsafe action.
+10. Open **Safety Center** to see the blocked action and the reason it was prevented.
+11. Open **Audit & Governance** and verify the **SHA-256 audit hash chain**, confirming integrity.
 
-## 12. Security & Threat Controls
-
-- **Prompt Injection Defense**: Detects and blocks malicious prompt override patterns.
-- **Replay & Idempotency Safeguards**: Prevents re-executing duplicate actions.
-- **Financial Safety Gating**: High-value actions queued for human review.
-- **RBAC**: Role-based permissions (`admin`, `merchant_operator`, `read_only`).
-- **Emergency Kill Switch**: Instant global shut-off switch.
-
----
-
-## 13. Auditability & Observability
-
-Captures an end-to-end audit trail for every transaction:
-```text
-INPUT → DIAGNOSIS → MODEL OUTPUT → CANDIDATE EVS → DECISION → POLICY RESULT → APPROVAL RESULT → EXECUTION → OUTCOME
-```
-Masks sensitive fields (`card_number`, `cvv`, `phone`) automatically before persisting.
+This walkthrough is meant to show actual controlled execution — approval, blocking, and audit verification — rather than static analytics.
 
 ---
 
-## 14. Evaluation Methodology
+## Dashboard
 
-Evaluates RevenueGuard strategy against a Fixed-Policy Baseline on identical held-out test datasets.
-Measures:
-- Total revenue recovered
-- Incremental revenue lift (%)
-- Net recovery (after costs & friction)
-- Intervention counts & customer contact friction
-- Unsafe actions blocked
+The frontend is a plain HTML/CSS/JavaScript application (no framework or build step) using hash-based routing across six views:
 
----
-
-## 15. Merchant Dashboard
-
-Accessible at `http://127.0.0.1:8000/dashboard`:
-- **KPI Metrics**: Real-time revenue at risk, recovered revenue, net recovery, and incremental lift.
-- **Action Breakdown**: Interactive visual distribution of recovery actions.
-- **Security Control Center**: Toggle emergency Kill Switch and view blocked actions.
-- **Transaction Explorer**: Search transactions to inspect full decision details and audit logs.
-- **Interactive Policy Simulator**: Tweak policy sliders (max retries, approval threshold) to simulate lift.
+| Route | Page | Purpose |
+|---|---|---|
+| `#overview` | **Overview** | Revenue at Risk, Recovered Revenue, Recovery Rate, Net Recovery, Pending Approvals, Blocked Actions, recovery activity, safety controls, and the Operations Demo entry point |
+| `#transactions` | **Transactions** | Transaction explorer with search and status filtering, plus per-transaction Decision Journey inspection |
+| `#approvals` | **Approvals** | Human approval queue — transaction context, diagnosis, recommendation, expected value, policy decision, Approve & Execute / Deny |
+| `#safety` | **Safety Center** | Blocked actions, policy violations, and the reasons actions were prevented — demonstrates the deterministic safety boundary |
+| `#audit` | **Audit & Governance** | Audit log, event and hash details, SHA-256 chain verification, and integrity status |
+| `#simulator` | **Policy Simulator** | Adjust policy parameters and compare current vs. simulated recovery, approval, and blocking outcomes |
 
 ---
 
-## 16. Installation
+## Evaluation
 
-### 1. Prerequisites
-- Python 3.10+
-- Virtual Environment (`.venv`)
+RevenueGuard is benchmarked against a fixed-policy retry baseline on a synthetic benchmark dataset. The evaluation is deterministic and reproducible.
 
-### 2. Setup
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
+| Metric | Value |
+|---|---|
+| Total transactions evaluated | 5,000 |
+| Total revenue at risk | ₹44,86,319.02 |
+| Fixed baseline recovery | ₹22,09,788.88 (49.26%) |
+| RevenueGuard AI recovery | ₹21,56,925.34 (48.08%) |
+| **Incremental revenue lift** | **-₹52,863.54 (-2.39%)** |
+| Net recovery after costs | ₹20,77,609.34 |
 
----
+These numbers are reported as measured, without adjustment. On this benchmark, RevenueGuard's AI-driven strategy does not currently outperform the fixed retry baseline.
 
-## 17. Configuration
-
-Configured via `backend/config.py` and `.env`:
-```env
-APP_NAME=RevenueGuard
-ENVIRONMENT=development
-LOG_LEVEL=INFO
-MAX_RETRIES=3
-COOLDOWN_HOURS=24
-HUMAN_APPROVAL_THRESHOLD_INR=5000.0
-KILL_SWITCH_ENABLED=false
-```
+The benchmark therefore provides a transparent measure of the current recovery strategy against a fixed baseline. In addition to recovery performance, the prototype demonstrates controlled decisioning through deterministic policy enforcement, human approval gating, blocked-action handling, and end-to-end auditability.
 
 ---
 
-## 18. Dataset Generation
+## Testing
 
-Generate a seedable synthetic dataset:
-```powershell
-.\.venv\Scripts\python.exe scripts/generate_dataset.py --customers 1000 --transactions 5000 --seed 42
-```
+**53 tests passing.**
 
----
-
-## 19. Running the Demo
-
-Execute the complete end-to-end scenario demo:
-```powershell
-.\.venv\Scripts\python.exe scripts/run_demo.py
-```
+Test coverage spans areas including evaluation, security and adversarial scenarios, security routes, audit chain integrity, the demo workflow, health checks, payments, recovery logic, recovery endpoints, and unit-level components.
 
 ---
 
-## 20. Running Tests
+## Technology Stack
 
-Run the comprehensive test suite (Unit, Integration, Security, Evaluation):
-```powershell
-.\.venv\Scripts\python.exe -m pytest -v
-```
-
----
-
-## 21. Running Simulation & Evaluation
-
-### Train Recoverability Model
-```powershell
-.\.venv\Scripts\python.exe scripts/train_models.py
-```
-
-### Run Recovery Simulation
-```powershell
-.\.venv\Scripts\python.exe scripts/run_simulation.py
-```
-
-### Run Rigorous Baseline vs. RevenueGuard Evaluation
-```powershell
-.\.venv\Scripts\python.exe scripts/run_evaluation.py
-```
-
-### Start API Server & Dashboard
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.app:app --reload
-```
-- API Documentation: `http://127.0.0.1:8000/docs`
-- Merchant Dashboard: `http://127.0.0.1:8000/dashboard`
+- **Backend**: Python
+- **AI/ML**: AI recommendation layer for recovery-action reasoning; expected-value-based candidate action ranking
+- **Frontend**: Plain HTML, CSS, and JavaScript (no framework, no build step) with hash-based client-side routing
+- **Testing**: Automated test suite (53 tests passing) covering evaluation, security, audit chain integrity, demo workflow, and recovery logic
+- **Data / Evaluation**: Synthetic benchmark dataset (5,000 transactions), deterministic and reproducible evaluation pipeline
+- **Diagrams**: Mermaid (this document)
 
 ---
 
-## 22. Limitations & Future Improvements
+## MVP Scope & Limitations
 
-### Limitations
-- Simulator relies on synthetic ground-truth probability distributions.
-- In-memory database storage used for development prototype.
+- **No authentication is implemented.** The "Merchant Operations Admin" label shown in the dashboard is a **configurable operator display identity**, not an authentication or access-control system. It should not be read as RBAC or login security.
+- The evaluation benchmark runs on a synthetic, deterministic dataset — it is not a live-production benchmark.
+- The current evaluation result does **not** show a positive incremental lift over the fixed baseline (see Evaluation above).
+- Safety and governance controls (policy engine, approval gating, kill switch, audit chaining, PII masking, route isolation) are MVP-level safeguards for controlled AI decisioning — they are not a claim of full production security or of being a certified production payment processor.
+- This is a hackathon MVP/prototype, built to demonstrate an architecture and decisioning pattern, not a production payment system.
 
-### Future Improvements
-- Production integration with live payment gateways (Stripe, Razorpay).
-- Persistent SQL storage (PostgreSQL/SQLAlchemy) for historical audit logs.
-- Reinforcement learning (Contextual Bandits) for continuous policy optimization.
+---
+
+## Future Work
+
+The following are reasonable next steps, **not implemented today**:
+
+- Authentication and role-based access control (RBAC)
+- Stronger operator identity and access management
+- Production payment-provider integrations
+- Richer merchant integrations
+- Additional/expanded recovery strategies
+- Model monitoring and online learning
+- Production-scale observability
+
+---
+
+## Demo
+
+For a live walkthrough, follow the [Live Demo Workflow](#live-demo-workflow) above: Run Demo Transaction → review and approve in the Approvals queue → inspect the transaction's decision journey → trigger the blocked scenario → review it in Safety Center → verify the audit hash chain in Audit & Governance.

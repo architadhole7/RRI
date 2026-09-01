@@ -1,24 +1,82 @@
-// RevenueGuard Operations Dashboard Controller
+// ============================================================
+// RevenueGuard — Multi-Page Operations Controller
+// Hash-based client-side routing over FastAPI StaticFiles
+// ============================================================
 
-let currentFilter = "ALL";
-let currentSearchQuery = "";
-let cachedSummary = null;
-let currentPendingApprovals = [];
+"use strict";
 
-document.addEventListener("DOMContentLoaded", () => {
-  initDashboard();
-});
+// ── App State ─────────────────────────────────────────────────
+let currentFilter       = "ALL";
+let currentSearchQuery  = "";
+let cachedSummary       = null;
+let currentApprovals    = [];  // live approval queue
 
-async function initDashboard() {
-  await fetchSystemStatus();
-  await fetchAnalyticsSummary();
-  await fetchApprovals();
-  await fetchBlockedActions();
-  await fetchTransactions();
-  await fetchAuditLogs();
+// ── Page Routing ──────────────────────────────────────────────
+
+const PAGES = ["overview", "transactions", "approvals", "safety", "audit", "simulator"];
+
+/**
+ * Navigate to a page by name. Updates hash, sidebar, and loads page data.
+ */
+function navigate(pageName) {
+  if (!PAGES.includes(pageName)) pageName = "overview";
+
+  // Update hash without triggering hashchange listener loop
+  if (window.location.hash !== "#" + pageName) {
+    history.pushState(null, "", "#" + pageName);
+  }
+
+  // Hide all pages, show target
+  PAGES.forEach(p => {
+    const el = document.getElementById("page-" + p);
+    if (el) el.classList.toggle("hidden", p !== pageName);
+  });
+
+  // Update sidebar active state
+  PAGES.forEach(p => {
+    const nav = document.getElementById("nav-" + p);
+    if (nav) {
+      nav.classList.toggle("active", p === pageName);
+      nav.setAttribute("aria-current", p === pageName ? "page" : "false");
+    }
+  });
+
+  // Load page-specific data
+  switch (pageName) {
+    case "overview":     initOverviewPage();     break;
+    case "transactions": initTransactionsPage(); break;
+    case "approvals":    initApprovalsPage();    break;
+    case "safety":       initSafetyPage();       break;
+    case "audit":        initAuditPage();        break;
+    case "simulator":    /* no auto-load */      break;
+  }
+
+  // On mobile, close sidebar after navigation
+  closeMobileSidebar();
 }
 
-// 1. System Status & Operator Config
+/**
+ * Resolve hash on initial load and listen for back/forward navigation.
+ */
+function initRouter() {
+  window.addEventListener("popstate", () => {
+    const hash = (window.location.hash || "#overview").replace("#", "");
+    navigate(hash);
+  });
+
+  const initial = (window.location.hash || "#overview").replace("#", "");
+  navigate(initial);
+}
+
+// ── Global Init ───────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+  fetchSystemStatus();
+  initRouter();
+});
+
+// ── System Status ─────────────────────────────────────────────
+
 async function fetchSystemStatus() {
   try {
     const res = await fetch("/system/status");
@@ -26,413 +84,216 @@ async function fetchSystemStatus() {
     const data = await res.json();
 
     if (data.operator && data.operator.name) {
-      const opElem = document.getElementById("operatorNameDisplay");
-      if (opElem) opElem.innerText = data.operator.name;
-    }
-    if (data.version) {
-      const verElem = document.getElementById("appVersion");
-      if (verElem) verElem.innerText = `v${data.version}`;
+      const el = document.getElementById("operatorNameDisplay");
+      if (el) el.innerText = data.operator.name;
     }
     if (data.safety) {
       updateKillSwitchUI(data.safety.kill_switch_active);
     }
-  } catch (err) {
-    console.warn("Could not fetch system status:", err);
+  } catch {
+    // Silently handle unavailable backend on load
   }
 }
 
-// 2. Overview Analytics Summary
+// ── Sidebar Toggle ────────────────────────────────────────────
+
+function toggleSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  if (!sidebar) return;
+  if (window.innerWidth <= 768) {
+    sidebar.classList.toggle("mobile-open");
+  } else {
+    sidebar.classList.toggle("collapsed");
+  }
+}
+
+function closeMobileSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  if (sidebar && window.innerWidth <= 768) {
+    sidebar.classList.remove("mobile-open");
+  }
+}
+
+// ── Currency Formatting ───────────────────────────────────────
+
+function formatINR(val) {
+  return "₹" + Number(val || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+// ============================================================
+// PAGE 1 — OVERVIEW
+// ============================================================
+
+async function initOverviewPage() {
+  await fetchAnalyticsSummary();
+  await fetchRecentTransactions();
+}
+
 async function fetchAnalyticsSummary() {
   try {
     const res = await fetch("/analytics/summary");
-    if (!res.ok) return;
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     cachedSummary = data;
-
-    // Currency Formatter
-    const formatINR = (val) => `₹${Number(val || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-    if (data.total_at_risk_amount !== undefined) {
-      document.getElementById("revenueAtRisk").innerText = formatINR(data.total_at_risk_amount);
-    }
-    if (data.total_transactions !== undefined) {
-      document.getElementById("txnTotalCount").innerText = `Across ${data.total_transactions.toLocaleString()} failed transactions`;
-    }
-    if (data.total_recovered_amount !== undefined) {
-      document.getElementById("revenueRecovered").innerText = formatINR(data.total_recovered_amount);
-    }
-    if (data.recovery_rate !== undefined) {
-      document.getElementById("recoveryRate").innerText = `${(data.recovery_rate * 100).toFixed(2)}% Recovery Rate`;
-    }
-    if (data.incremental_recovery_amount !== undefined) {
-      const amt = data.incremental_recovery_amount;
-      const sign = amt < 0 ? "-" : "+";
-      document.getElementById("incrementalLift").innerText = `${sign}${formatINR(Math.abs(amt))}`;
-    }
-    if (data.incremental_recovery_lift_pct !== undefined) {
-      const pct = data.incremental_recovery_lift_pct;
-      const sign = pct > 0 ? "+" : "";
-      document.getElementById("liftPct").innerText = `${sign}${pct.toFixed(2)}% vs. Fixed Retry Baseline`;
-    }
-    if (data.net_recovery !== undefined) {
-      document.getElementById("netRecovery").innerText = formatINR(data.net_recovery);
-    }
-    if (data.unsafe_actions_blocked !== undefined) {
-      document.getElementById("blockedCount").innerText = data.unsafe_actions_blocked;
-    }
-
+    renderSummaryKPIs(data);
     renderActionBreakdown(data.action_breakdown || {});
-  } catch (err) {
-    console.error("Analytics summary fetch error:", err);
+  } catch {
+    setKpiError();
   }
 }
 
-// 3. Action Breakdown
+function renderSummaryKPIs(data) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+
+  set("ovRevenueAtRisk",    formatINR(data.total_at_risk_amount));
+  set("ovTxnCount",         `Across ${(data.total_transactions || 0).toLocaleString()} failed transactions`);
+  set("ovRecovered",        formatINR(data.total_recovered_amount));
+  set("ovRecoveryRate",     `${((data.recovery_rate || 0) * 100).toFixed(2)}% Recovery Rate`);
+  set("ovNetRecovery",      formatINR(data.net_recovery));
+
+  // Incremental lift
+  const lift = data.incremental_recovery_amount || 0;
+  const sign = lift < 0 ? "−" : "+";
+  set("ovIncrementalLift",  sign + formatINR(Math.abs(lift)));
+  const liftPct = data.incremental_recovery_lift_pct || 0;
+  const liftSign = liftPct >= 0 ? "+" : "";
+  set("ovLiftPct",          liftSign + liftPct.toFixed(2) + "% vs. fixed retry baseline");
+
+  // Blocked count
+  if (data.unsafe_actions_blocked !== undefined) {
+    set("ovBlocked", data.unsafe_actions_blocked);
+  }
+
+  // Update sidebar approval badge separately after approvals load
+}
+
+function setKpiError() {
+  const ids = ["ovRevenueAtRisk","ovRecovered","ovNetRecovery","ovIncrementalLift","ovApprovals","ovBlocked"];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.innerText = "—"; });
+  showToast("Could not load summary metrics. Check backend connection.", "danger");
+}
+
 function renderActionBreakdown(breakdown) {
-  const container = document.getElementById("breakdownList");
+  const container = document.getElementById("ovBreakdownList");
   if (!container) return;
 
   const total = Object.values(breakdown).reduce((a, b) => a + b, 0) || 1;
   const actions = [
-    { key: "RETRY_NOW", label: "RETRY_NOW", desc: "Instant gateway resubmission" },
-    { key: "RETRY_LATER", label: "RETRY_LATER", desc: "Scheduled retry window" },
-    { key: "NOTIFY_CUSTOMER", label: "NOTIFY_CUSTOMER", desc: "Customer notification / link" },
-    { key: "ESCALATE", label: "ESCALATE", desc: "Agent / VIP escalation" },
-    { key: "STOP", label: "STOP", desc: "Recovery halted / non-recoverable" },
+    { key: "RETRY_NOW",        label: "RETRY_NOW",         css: "action-retry-now" },
+    { key: "RETRY_LATER",      label: "RETRY_LATER",       css: "action-retry-later" },
+    { key: "NOTIFY_CUSTOMER",  label: "NOTIFY_CUSTOMER",   css: "action-notify-customer" },
+    { key: "ESCALATE",         label: "ESCALATE",          css: "action-escalate" },
+    { key: "STOP",             label: "STOP",              css: "action-stop" },
   ];
 
   let html = "";
-  actions.forEach((act) => {
+  actions.forEach(act => {
     const count = breakdown[act.key] || 0;
-    const pct = ((count / total) * 100).toFixed(1);
-    const cssClass = act.key.toLowerCase().replace(/_/g, "-");
+    const pct   = ((count / total) * 100).toFixed(1);
     html += `
-      <div class="breakdown-item">
-        <span class="action-label action-${cssClass}">${act.label}</span>
-        <div class="progress-track">
-          <div class="progress-fill" style="width: ${pct}%;"></div>
-        </div>
-        <span class="count-stat">${pct}% (${count.toLocaleString()})</span>
-      </div>
-    `;
+      <div class="breakdown-row">
+        <span class="breakdown-label ${act.css}">${act.label}</span>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <span class="breakdown-stat">${pct}% (${count.toLocaleString()})</span>
+      </div>`;
   });
 
-  container.innerHTML = html;
+  container.innerHTML = html || '<div class="loading-row">No breakdown data available.</div>';
 }
 
-// 4. Operations Demo Triggers
-async function runDemoTransaction() {
-  const btn = document.getElementById("btnRunDemoTxn");
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span>⏳</span> Processing Demo...';
-  }
-
+async function fetchRecentTransactions() {
   try {
-    const res = await fetch("/recovery/demo/transaction", { method: "POST" });
-    if (!res.ok) {
-      showToast("Demo transaction creation failed.", "danger");
-      return;
-    }
+    const res = await fetch("/recovery/transactions?status=ALL&search=&limit=5");
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    showToast(
-      `Demo payment ${data.payment_id} (₹${Number(data.amount).toLocaleString("en-IN")}) ingested → Paused at Human Approval Gate (${data.reason})`,
-      "info"
-    );
-
-    await initDashboard();
-    scrollToSection("approvalsSection");
-  } catch (err) {
-    showToast("Network error executing demo transaction.", "danger");
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<span>⚡</span> Run Demo Transaction (₹12,500 High-Value)';
-    }
+    renderRecentOpsTable(data.transactions || []);
+  } catch {
+    const tbody = document.getElementById("ovRecentTableBody");
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Could not load recent operations.</td></tr>';
   }
 }
 
-async function runBlockedScenario() {
-  const btn = document.getElementById("btnRunBlockedDemo");
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span>⏳</span> Running Blocked Scenario...';
-  }
+function renderRecentOpsTable(txns) {
+  const tbody = document.getElementById("ovRecentTableBody");
+  if (!tbody) return;
 
-  try {
-    const res = await fetch("/recovery/demo/blocked", { method: "POST" });
-    if (!res.ok) {
-      showToast("Blocked scenario execution failed.", "danger");
-      return;
-    }
-    const data = await res.json();
-    showToast(
-      `Unsafe recovery attempt ${data.payment_id} BLOCKED by Policy Engine: ${data.reason}`,
-      "danger"
-    );
-
-    await initDashboard();
-    scrollToSection("blockedSection");
-  } catch (err) {
-    showToast("Network error running blocked scenario.", "danger");
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<span>🚫</span> Run Blocked Scenario (Policy Denial)';
-    }
-  }
-}
-
-// 5. Pending Approvals
-async function fetchApprovals() {
-  try {
-    const res = await fetch("/recovery/approvals");
-    if (!res.ok) return;
-    const data = await res.json();
-    currentPendingApprovals = data || [];
-
-    // Update pending approvals counter with live unresolved state
-    const appCountElem = document.getElementById("approvalCount");
-    if (appCountElem) {
-      appCountElem.innerText = currentPendingApprovals.length;
-    }
-
-    const tbody = document.getElementById("approvalsTableBody");
-    if (!tbody) return;
-
-    if (!data || data.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="empty-cell">
-            No pending approvals. All automated recovery actions are currently operating within safe deterministic policy bounds.
-          </td>
-        </tr>
-      `;
-      return;
-    }
-
-    let html = "";
-    data.forEach((app) => {
-      const createdDate = new Date(app.created_at).toLocaleTimeString();
-      html += `
-        <tr>
-          <td class="mono-cell">${escapeHtml(app.approval_id)}</td>
-          <td class="mono-cell">${escapeHtml(app.payment_id)}</td>
-          <td><strong>₹${Number(app.amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></td>
-          <td><span class="action-label action-${app.action.toLowerCase().replace(/_/g, "-")}">${escapeHtml(app.action)}</span></td>
-          <td><span class="text-secondary">${escapeHtml(app.reason)}</span></td>
-          <td><span class="badge badge-approval">${escapeHtml(app.status)}</span></td>
-          <td>${createdDate}</td>
-          <td>
-            <div class="btn-group">
-              <button class="btn btn-sm btn-primary" onclick="openApprovalReview('${app.approval_id}')">
-                🔍 Review & Authorize
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    });
-    tbody.innerHTML = html;
-  } catch (err) {
-    console.error("Error fetching approvals:", err);
-  }
-}
-
-async function openApprovalReview(approvalId) {
-  const modal = document.getElementById("approvalModal");
-  const body = document.getElementById("approvalModalBody");
-  const btnApprove = document.getElementById("btnModalApprove");
-  const btnDeny = document.getElementById("btnModalDeny");
-
-  const app = currentPendingApprovals.find((a) => a.approval_id === approvalId);
-  if (!app) {
-    showToast("Approval details not found in active queue.", "danger");
+  if (!txns.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No recent operations.</td></tr>';
     return;
   }
 
-  body.innerHTML = `
-    <div class="review-grid">
-      <div class="review-section">
-        <h4>Transaction & Customer</h4>
-        <div class="review-row"><span>Payment ID:</span> <strong class="mono-cell">${escapeHtml(app.payment_id)}</strong></div>
-        <div class="review-row"><span>Amount:</span> <strong>₹${Number(app.amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })} INR</strong></div>
-        <div class="review-row"><span>Merchant ID:</span> <span>${escapeHtml(app.merchant_id)}</span></div>
-        <div class="review-row"><span>Status:</span> <span class="badge badge-approval">PENDING AUTHORIZATION</span></div>
-      </div>
-
-      <div class="review-section">
-        <h4>Intelligence & Recommended Action</h4>
-        <div class="review-row"><span>Proposed Action:</span> <span class="action-label action-${app.action.toLowerCase().replace(/_/g, "-")}">${escapeHtml(app.action)}</span></div>
-        <div class="review-row"><span>Failure Cause:</span> <span class="badge badge-info">INSUFFICIENT_FUNDS</span></div>
-        <div class="review-row"><span>Expected Net EV:</span> <strong class="val-pos">₹${Number(app.amount * 0.65).toFixed(2)}</strong></div>
-        <div class="review-row"><span>Model Confidence:</span> <span>88.5%</span></div>
-      </div>
-    </div>
-
-    <div class="review-section" style="margin-top: 14px;">
-      <h4>Deterministic Policy Boundary</h4>
-      <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-        <strong>Triggered Policy Rule:</strong> ${escapeHtml(app.reason)}
-      </p>
-      <div class="guarantees-list" style="gap: 6px;">
-        <div class="review-row" style="font-size: 11px;">
-          <span>• Customer Risk Score: <strong>0.15 (SAFE)</strong></span>
-          <span>• Customer Consent: <strong class="val-pos">VALID</strong></span>
-          <span>• Cooldown (24h): <strong class="val-pos">PASS</strong></span>
-        </div>
-      </div>
-    </div>
-  `;
-
-  btnApprove.onclick = () => {
-    closeApprovalModal();
-    reviewApproval(approvalId, true);
-  };
-
-  btnDeny.onclick = () => {
-    closeApprovalModal();
-    reviewApproval(approvalId, false);
-  };
-
-  modal.classList.remove("hidden");
+  tbody.innerHTML = txns.map(t => `
+    <tr>
+      <td class="cell-mono">${escapeHtml(t.payment_id)}</td>
+      <td>${formatINR(t.amount)}</td>
+      <td><span class="action-label badge-slate">${escapeHtml(t.failure_category || "—")}</span></td>
+      <td>${getStatusBadge(t.status)}</td>
+      <td class="text-muted">${formatTime(t.created_at)}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm"
+                onclick="inspectTransactionJourney('${escapeHtml(t.payment_id)}')">
+          Inspect Journey
+        </button>
+      </td>
+    </tr>`).join("");
 }
 
-function closeApprovalModal() {
-  const modal = document.getElementById("approvalModal");
-  if (modal) modal.classList.add("hidden");
+// ============================================================
+// PAGE 2 — TRANSACTIONS
+// ============================================================
+
+function initTransactionsPage() {
+  fetchTransactions();
 }
 
-async function reviewApproval(approvalId, approve) {
-  try {
-    const res = await fetch(`/recovery/approvals/${approvalId}/review?approve=${approve}`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      showToast("Failed to process approval review.", "danger");
-      return;
-    }
-    const data = await res.json();
-    showToast(
-      `Approval ${approvalId} ${approve ? "APPROVED — Action executed by Orchestrator" : "DENIED — Action blocked by Operator"}`,
-      approve ? "success" : "danger"
-    );
-
-    // Refresh all dependent dashboard state
-    await initDashboard();
-    scrollToSection("explorerSection");
-  } catch (err) {
-    showToast("Error communicating with server.", "danger");
-  }
-}
-
-// 6. Blocked Actions
-async function fetchBlockedActions() {
-  try {
-    const res = await fetch("/recovery/blocked");
-    if (!res.ok) return;
-    const data = await res.json();
-    const tbody = document.getElementById("blockedTableBody");
-    if (!tbody) return;
-
-    if (!data || data.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="6" class="empty-cell">
-            No blocked actions recorded.
-          </td>
-        </tr>
-      `;
-      return;
-    }
-
-    let html = "";
-    data.forEach((item) => {
-      const ts = new Date(item.timestamp).toLocaleTimeString();
-      html += `
-        <tr>
-          <td class="mono-cell">${escapeHtml(item.transaction_id)}</td>
-          <td>₹${Number(item.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td>
-          <td><span class="action-label action-stop">${escapeHtml(item.attempted_action)}</span></td>
-          <td><span class="badge badge-deny">${escapeHtml(item.guard_decision)}</span></td>
-          <td><span class="text-secondary">${escapeHtml(item.reason)}</span></td>
-          <td>${ts}</td>
-        </tr>
-      `;
-    });
-    tbody.innerHTML = html;
-  } catch (err) {
-    console.error("Error fetching blocked actions:", err);
-  }
-}
-
-// 7. Transaction Explorer
 async function fetchTransactions() {
+  const tbody = document.getElementById("transactionsTableBody");
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">Loading...</td></tr>';
+
   try {
-    const url = `/recovery/transactions?status=${encodeURIComponent(currentFilter)}&search=${encodeURIComponent(currentSearchQuery)}&limit=50`;
+    const url = `/recovery/transactions?status=${encodeURIComponent(currentFilter)}&search=${encodeURIComponent(currentSearchQuery)}&limit=100`;
     const res = await fetch(url);
-    if (!res.ok) return;
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    const tbody = document.getElementById("transactionsTableBody");
-    if (!tbody) return;
-
-    const txns = data.transactions || [];
-    if (txns.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="empty-cell">
-            No transactions matching filter criteria.
-          </td>
-        </tr>
-      `;
-      return;
-    }
-
-    let html = "";
-    txns.forEach((t) => {
-      const createdStr = new Date(t.created_at).toLocaleTimeString();
-      const statusBadge = getStatusBadge(t.status);
-      html += `
-        <tr>
-          <td class="mono-cell">${escapeHtml(t.payment_id)}</td>
-          <td class="mono-cell">${escapeHtml(t.customer_id)}</td>
-          <td><strong>₹${Number(t.amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></td>
-          <td>${escapeHtml(t.payment_method)}</td>
-          <td><span class="badge badge-info">${escapeHtml(t.failure_category)}</span></td>
-          <td>${statusBadge}</td>
-          <td>${createdStr}</td>
-          <td>
-            <button class="btn btn-sm btn-secondary" onclick="inspectTransactionJourney('${t.payment_id}')">
-              Inspect Journey
-            </button>
-          </td>
-        </tr>
-      `;
-    });
-    tbody.innerHTML = html;
-  } catch (err) {
-    console.error("Error fetching transactions:", err);
+    renderTransactionsTable(data.transactions || []);
+  } catch {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">Could not load transactions. Please check backend connection.</td></tr>';
   }
 }
 
-function getStatusBadge(status) {
-  switch (status) {
-    case "EXECUTED":
-      return '<span class="badge badge-allow">EXECUTED</span>';
-    case "RECOVERED":
-      return '<span class="badge badge-recovered">RECOVERED</span>';
-    case "NEEDS_HUMAN_APPROVAL":
-      return '<span class="badge badge-approval">APPROVAL REQUIRED</span>';
-    case "BLOCKED":
-      return '<span class="badge badge-deny">BLOCKED</span>';
-    default:
-      return `<span class="badge badge-failed">${escapeHtml(status)}</span>`;
+function renderTransactionsTable(txns) {
+  const tbody = document.getElementById("transactionsTableBody");
+  if (!tbody) return;
+
+  if (!txns.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No transactions matching filter criteria.</td></tr>';
+    return;
   }
+
+  tbody.innerHTML = txns.map(t => `
+    <tr>
+      <td class="cell-mono">${escapeHtml(t.payment_id)}</td>
+      <td class="cell-mono" style="color:var(--text-secondary)">${escapeHtml(t.customer_id)}</td>
+      <td><strong>${formatINR(t.amount)}</strong></td>
+      <td>${escapeHtml(t.payment_method || "—")}</td>
+      <td><span class="action-label badge-slate">${escapeHtml(t.failure_category || "—")}</span></td>
+      <td>${getStatusBadge(t.status)}</td>
+      <td class="text-muted">${formatTime(t.created_at)}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm"
+                onclick="inspectTransactionJourney('${escapeHtml(t.payment_id)}')">
+          Inspect Journey
+        </button>
+      </td>
+    </tr>`).join("");
 }
 
 function setFilter(filter) {
   currentFilter = filter;
-  document.querySelectorAll(".tab-btn").forEach((btn) => {
+  document.querySelectorAll(".filter-btn").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.filter === filter);
   });
   fetchTransactions();
@@ -444,201 +305,431 @@ function searchTransactions() {
   fetchTransactions();
 }
 
-// 8. Transaction Decision Journey Inspector
-async function inspectTransactionJourney(paymentId) {
-  const modal = document.getElementById("journeyModal");
-  const title = document.getElementById("journeyModalTitle");
-  const body = document.getElementById("journeyModalBody");
+// ============================================================
+// PAGE 3 — APPROVALS
+// ============================================================
 
-  title.innerText = `Decision Journey: Payment ${paymentId}`;
-  body.innerHTML = '<div class="loading-state">Loading complete decision journey and EV evaluation...</div>';
-  modal.classList.remove("hidden");
+async function initApprovalsPage() {
+  await fetchApprovals();
+}
+
+async function fetchApprovals() {
+  const tbody = document.getElementById("approvalsTableBody");
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">Loading...</td></tr>';
 
   try {
-    const res = await fetch(`/recovery/transaction/${paymentId}/journey`);
-    if (!res.ok) {
-      body.innerHTML = '<div class="empty-cell">Could not load journey data for this transaction.</div>';
-      return;
-    }
+    const res = await fetch("/recovery/approvals");
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    renderJourneyTimeline(data, body);
-  } catch (err) {
-    body.innerHTML = '<div class="empty-cell">Network error loading journey.</div>';
+    currentApprovals = data || [];
+    renderApprovalsTable(currentApprovals);
+    updateApprovalSummary(currentApprovals);
+    updateSidebarApprovalBadge(currentApprovals.length);
+  } catch {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">Could not load approvals. Please check backend connection.</td></tr>';
   }
 }
 
-function renderJourneyTimeline(data, container) {
-  const p = data.payment || {};
-  const d = data.diagnosis || {};
-  const pol = data.policy_evaluation || {};
-  const outcome = data.outcome || {};
-  const evActions = data.candidate_actions || [];
-  const audits = data.audit_trail || [];
+function updateApprovalSummary(approvals) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+  const pending = approvals.filter(a => a.status === "PENDING" || a.status === "PENDING_REVIEW").length;
+  set("appPendingCount",   pending);
+  set("appHighValueCount", approvals.filter(a => (a.amount || 0) >= 5000).length);
+  set("appTotalCount",     approvals.length);
 
-  let candidateTableHtml = "";
-  if (evActions.length > 0) {
-    candidateTableHtml = `
-      <table class="sim-comparison-table" style="margin-top: 8px;">
-        <thead>
-          <tr>
-            <th>Candidate Action</th>
-            <th>P(Recovery)</th>
-            <th>Action Cost</th>
-            <th>Friction</th>
-            <th>Net EV</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${evActions.map((c) => `
-            <tr style="${c.action === data.recommended_action ? 'background: rgba(56, 189, 248, 0.1); font-weight: 600;' : ''}">
-              <td><span class="action-label action-${c.action.toLowerCase().replace(/_/g, "-")}">${c.action}</span></td>
-              <td>${(c.p_recovery * 100).toFixed(1)}%</td>
-              <td>₹${Number(c.action_cost).toFixed(2)}</td>
-              <td>₹${Number(c.customer_friction).toFixed(2)}</td>
-              <td class="${c.expected_value >= 0 ? 'val-pos' : 'val-neg'}">₹${Number(c.expected_value).toFixed(2)}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
-  }
-
-  container.innerHTML = `
-    <div class="timeline">
-      <!-- Step 1: Ingestion -->
-      <div class="timeline-step completed">
-        <div class="timeline-dot"></div>
-        <div class="step-title">1. Payment Failed & Context Ingested</div>
-        <div class="step-desc">Payment of ₹${Number(p.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })} via ${p.payment_method || "CARD"} recorded failed status.</div>
-        <div class="step-meta">
-          <strong>Raw Failure Code:</strong> <code>${escapeHtml(p.failure_code || "ERR_UNKNOWN")}</code> | 
-          <strong>Retry Attempt:</strong> ${p.retry_count || 0}
-        </div>
-      </div>
-
-      <!-- Step 2: Diagnosis -->
-      <div class="timeline-step completed">
-        <div class="timeline-dot"></div>
-        <div class="step-title">2. Root-Cause Failure Diagnosed</div>
-        <div class="step-desc">Classified into failure category: <strong>${escapeHtml(d.human_readable || d.failure_category || "Unknown")}</strong> (Confidence: ${(d.confidence * 100).toFixed(0)}%)</div>
-      </div>
-
-      <!-- Step 3: EV Action Ranking -->
-      <div class="timeline-step completed">
-        <div class="timeline-dot"></div>
-        <div class="step-title">3. Expected-Value (EV) Action Optimization</div>
-        <div class="step-desc">Candidate recovery actions evaluated against probabilistic recovery model and operational costs:</div>
-        ${candidateTableHtml}
-      </div>
-
-      <!-- Step 4: AI Recommendation -->
-      <div class="timeline-step completed">
-        <div class="timeline-dot"></div>
-        <div class="step-title">4. Bounded AI Recommendation</div>
-        <div class="step-desc">Selected optimal action: <span class="action-label action-${(data.recommended_action || "STOP").toLowerCase().replace(/_/g, "-")}">${escapeHtml(data.recommended_action || "STOP")}</span> (Net EV: ₹${Number(data.selected_expected_value || 0).toFixed(2)})</div>
-        <div class="step-meta">
-          <strong>Agent Reasoning:</strong> ${escapeHtml(data.reasoning_summary || "Calculated optimal economic intervention")}
-        </div>
-      </div>
-
-      <!-- Step 5: Deterministic Policy Check -->
-      <div class="timeline-step ${pol.result === 'ALLOW' ? 'completed' : pol.result === 'DENY' ? 'blocked' : 'warning'}">
-        <div class="timeline-dot"></div>
-        <div class="step-title">5. Deterministic Policy Engine Guard</div>
-        <div class="step-desc">Decision: <strong>${escapeHtml(pol.result || "ALLOW")}</strong></div>
-        ${pol.violations && pol.violations.length > 0 ? `
-          <div class="step-meta" style="color: var(--accent-warning);">
-            <strong>Rules Triggered:</strong> ${escapeHtml(pol.violations.join("; "))}
-          </div>
-        ` : ''}
-      </div>
-
-      <!-- Step 6: Execution & Outcome -->
-      <div class="timeline-step completed">
-        <div class="timeline-dot"></div>
-        <div class="step-title">6. Orchestration & Outcome</div>
-        <div class="step-desc">
-          Status: <strong>${outcome.recovered ? 'RECOVERED' : 'EXECUTED (Unrecovered)'}</strong> | 
-          Recovered Amount: <strong>₹${Number(outcome.recovered_amount || 0).toFixed(2)}</strong> | 
-          Operating Cost: ₹${Number(outcome.action_cost || 0).toFixed(2)}
-        </div>
-      </div>
-
-      <!-- Step 7: Tamper-Evident Audit -->
-      <div class="timeline-step completed">
-        <div class="timeline-dot"></div>
-        <div class="step-title">7. Cryptographic Audit Trail Record</div>
-        <div class="step-desc">${audits.length} tamper-evident event(s) recorded for this transaction.</div>
-        ${audits.map((a) => `
-          <div class="step-meta" style="font-family: var(--font-mono); font-size: 10px;">
-            [${a.event_type}] Hash: ${escapeHtml((a.current_hash || "").slice(0, 24))}... | Prev: ${escapeHtml((a.previous_hash || "").slice(0, 12))}...
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
+  // Also update overview KPI
+  const ovEl = document.getElementById("ovApprovals");
+  if (ovEl) ovEl.innerText = pending || approvals.length;
 }
 
-function closeJourneyModal() {
-  const modal = document.getElementById("journeyModal");
+function updateSidebarApprovalBadge(count) {
+  const badge = document.getElementById("sidebarApprovalBadge");
+  if (!badge) return;
+  if (count > 0) {
+    badge.innerText = count;
+    badge.style.display = "inline-block";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+function renderApprovalsTable(approvals) {
+  const tbody = document.getElementById("approvalsTableBody");
+  if (!tbody) return;
+
+  if (!approvals.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">No pending approvals. All automated recovery actions are operating within policy bounds.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = approvals.map(app => `
+    <tr>
+      <td class="cell-mono">${escapeHtml(app.approval_id)}</td>
+      <td class="cell-mono">${escapeHtml(app.payment_id)}</td>
+      <td><strong>${formatINR(app.amount)}</strong></td>
+      <td><span class="action-label badge-slate">${escapeHtml(app.failure_category || app.failure_cause || "—")}</span></td>
+      <td><span class="action-label ${getActionCss(app.action)}">${escapeHtml(app.action)}</span></td>
+      <td class="text-secondary" style="max-width:200px; white-space:normal">${escapeHtml(app.reason || "—")}</td>
+      <td><span class="status-badge badge-warning">${escapeHtml(app.status)}</span></td>
+      <td class="text-muted">${formatTime(app.created_at)}</td>
+      <td>
+        <button class="btn btn-primary btn-sm"
+                onclick="openApprovalReview('${escapeHtml(app.approval_id)}')">
+          Review
+        </button>
+      </td>
+    </tr>`).join("");
+}
+
+// ── Approval Review Modal ─────────────────────────────────────
+
+function openApprovalReview(approvalId) {
+  const app = currentApprovals.find(a => a.approval_id === approvalId);
+  if (!app) {
+    showToast("Approval record not found in current queue.", "danger");
+    return;
+  }
+
+  const title = document.getElementById("approvalModalTitle");
+  if (title) title.innerText = `Review Intervention — ${app.payment_id}`;
+
+  const body = document.getElementById("approvalModalBody");
+  if (body) {
+    body.innerHTML = `
+      <div class="review-grid">
+        <div class="review-section">
+          <div class="review-section-title">Transaction &amp; Context</div>
+          <div class="review-row">
+            <span class="review-row-label">Payment ID</span>
+            <span class="review-row-value cell-mono">${escapeHtml(app.payment_id)}</span>
+          </div>
+          <div class="review-row">
+            <span class="review-row-label">Amount</span>
+            <span class="review-row-value"><strong>${formatINR(app.amount)}</strong></span>
+          </div>
+          <div class="review-row">
+            <span class="review-row-label">Merchant</span>
+            <span class="review-row-value">${escapeHtml(app.merchant_id || "—")}</span>
+          </div>
+          <div class="review-row">
+            <span class="review-row-label">Status</span>
+            <span class="review-row-value"><span class="status-badge badge-warning">PENDING AUTHORIZATION</span></span>
+          </div>
+        </div>
+
+        <div class="review-section">
+          <div class="review-section-title">Intelligence &amp; Recommendation</div>
+          <div class="review-row">
+            <span class="review-row-label">Failure Cause</span>
+            <span class="review-row-value">
+              <span class="action-label badge-slate">${escapeHtml(app.failure_category || app.failure_cause || "—")}</span>
+            </span>
+          </div>
+          <div class="review-row">
+            <span class="review-row-label">Proposed Action</span>
+            <span class="review-row-value">
+              <span class="action-label ${getActionCss(app.action)}">${escapeHtml(app.action)}</span>
+            </span>
+          </div>
+          <div class="review-row">
+            <span class="review-row-label">Expected Net EV</span>
+            <span class="review-row-value text-green">${app.expected_value !== undefined ? formatINR(app.expected_value) : "Calculated"}</span>
+          </div>
+          <div class="review-row">
+            <span class="review-row-label">Model Confidence</span>
+            <span class="review-row-value">${app.model_confidence !== undefined ? (app.model_confidence * 100).toFixed(1) + "%" : "—"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="review-section">
+        <div class="review-section-title">Deterministic Policy Boundary</div>
+        <div class="review-row">
+          <span class="review-row-label">Policy Gate Reason</span>
+          <span class="review-row-value" style="max-width:320px; text-align:right; white-space:normal">${escapeHtml(app.reason || "High-value threshold exceeded")}</span>
+        </div>
+        <div class="review-row">
+          <span class="review-row-label">Customer Consent</span>
+          <span class="review-row-value ${app.customer_consent === false ? 'text-red' : 'text-green'}">${app.customer_consent === false ? "WITHHELD" : "VALID"}</span>
+        </div>
+        <div class="review-row">
+          <span class="review-row-label">Retry Cooldown</span>
+          <span class="review-row-value text-green">${app.cooldown_passed === false ? "BLOCKED" : "PASS"}</span>
+        </div>
+        <div class="review-row">
+          <span class="review-row-label">Customer Risk Score</span>
+          <span class="review-row-value">${app.customer_risk_score !== undefined ? app.customer_risk_score.toFixed(2) : "—"}</span>
+        </div>
+      </div>
+
+      <div class="review-section" style="background:var(--amber-dim); border-color:var(--amber-border)">
+        <div class="review-section-title" style="color:var(--amber)">Authorization Required</div>
+        <p style="font-size:12px; color:var(--text-secondary); line-height:1.5">
+          The AI engine has produced a recommendation. The deterministic policy engine has paused execution pending operator authorization.
+          Approving will dispatch the action to the orchestrator. Denying will block execution and record the decision in the audit trail.
+        </p>
+      </div>`;
+  }
+
+  const btnApprove = document.getElementById("btnModalApprove");
+  const btnDeny    = document.getElementById("btnModalDeny");
+
+  if (btnApprove) btnApprove.onclick = () => { closeApprovalModal(); reviewApproval(approvalId, true); };
+  if (btnDeny)    btnDeny.onclick    = () => { closeApprovalModal(); reviewApproval(approvalId, false); };
+
+  const modal = document.getElementById("approvalModal");
+  if (modal) modal.classList.remove("hidden");
+}
+
+function closeApprovalModal() {
+  const modal = document.getElementById("approvalModal");
   if (modal) modal.classList.add("hidden");
 }
 
-// 9. Interactive Policy Simulation
+async function reviewApproval(approvalId, approve) {
+  try {
+    const res = await fetch(
+      `/recovery/approvals/${encodeURIComponent(approvalId)}/review?approve=${approve}`,
+      { method: "POST" }
+    );
+    if (!res.ok) {
+      const err = await safeParseError(res);
+      showToast(`Approval action failed: ${err}`, "danger");
+      return;
+    }
+
+    showToast(
+      approve
+        ? `Approved — action dispatched to orchestrator.`
+        : `Denied — action blocked and recorded in audit trail.`,
+      approve ? "success" : "info"
+    );
+
+    // Refresh all dependent data
+    await fetchApprovals();
+    if (cachedSummary !== null) await fetchAnalyticsSummary();
+  } catch {
+    showToast("Network error processing approval decision.", "danger");
+  }
+}
+
+// ============================================================
+// PAGE 4 — SAFETY CENTER
+// ============================================================
+
+async function initSafetyPage() {
+  await fetchBlockedActions();
+}
+
+async function fetchBlockedActions() {
+  const tbody = document.getElementById("blockedTableBody");
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Loading...</td></tr>';
+
+  try {
+    const res = await fetch("/recovery/blocked");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    renderBlockedTable(data || []);
+    updateSafetyCounters(data || []);
+  } catch {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Could not load blocked actions. Please check backend connection.</td></tr>';
+  }
+}
+
+function renderBlockedTable(items) {
+  const tbody = document.getElementById("blockedTableBody");
+  if (!tbody) return;
+
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No blocked actions recorded.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map(item => `
+    <tr>
+      <td class="cell-mono">${escapeHtml(item.transaction_id)}</td>
+      <td><strong>${formatINR(item.amount)}</strong></td>
+      <td><span class="action-label action-stop">${escapeHtml(item.attempted_action || "—")}</span></td>
+      <td><span class="status-badge badge-blocked">${escapeHtml(item.guard_decision || "BLOCKED")}</span></td>
+      <td class="text-secondary" style="max-width:240px; white-space:normal">${escapeHtml(item.reason || "—")}</td>
+      <td class="text-muted">${formatTime(item.timestamp)}</td>
+    </tr>`).join("");
+}
+
+function updateSafetyCounters(items) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+  set("safetyBlockedCount",     items.length);
+  set("safetyViolationsCount",  items.length);
+  set("safetyUnsafeCount",      0);
+
+  // Update overview blocked KPI
+  const ovEl = document.getElementById("ovBlocked");
+  if (ovEl) ovEl.innerText = items.length;
+}
+
+// ============================================================
+// PAGE 5 — AUDIT & GOVERNANCE
+// ============================================================
+
+function initAuditPage() {
+  fetchAuditLogs();
+}
+
+async function fetchAuditLogs() {
+  const tbody = document.getElementById("auditTableBody");
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Loading...</td></tr>';
+
+  try {
+    const res = await fetch("/audit/logs?limit=100");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const logs = await res.json();
+    renderAuditTable(logs || []);
+
+    // Update record count
+    const countEl = document.getElementById("auditRecordCount");
+    if (countEl) countEl.innerText = (logs || []).length;
+  } catch {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Could not load audit records. Please check backend connection.</td></tr>';
+  }
+}
+
+function renderAuditTable(logs) {
+  const tbody = document.getElementById("auditTableBody");
+  if (!tbody) return;
+
+  if (!logs.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No audit events recorded yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = logs.map(log => {
+    const hashShort = log.current_hash ? log.current_hash.slice(0, 16) + "…" : "GENESIS";
+    const hashFull  = escapeHtml(log.current_hash || "");
+    return `
+    <tr>
+      <td class="text-muted">${formatTime(log.timestamp)}</td>
+      <td><span class="cell-mono">${escapeHtml(log.event_type || "—")}</span></td>
+      <td class="cell-mono">${escapeHtml(log.transaction_id || "—")}</td>
+      <td><span class="action-label ${getActionCss(log.selected_action)}">${escapeHtml(log.selected_action || "—")}</span></td>
+      <td>${getPolicyBadge(log.policy_result)}</td>
+      <td class="text-secondary">${escapeHtml(log.execution_result || "—")}</td>
+      <td><span class="cell-hash" title="${hashFull}">${hashShort}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+async function verifyAuditChain() {
+  const banner = document.getElementById("auditVerifyBanner");
+  const btn    = document.getElementById("verifyChainBtn");
+  const status = document.getElementById("auditVerifyStatus");
+
+  if (btn) { btn.disabled = true; btn.innerText = "Verifying…"; }
+  if (banner) { banner.className = "audit-verify-banner"; banner.innerHTML = "Verifying SHA-256 hash chain integrity…"; banner.classList.remove("hidden"); }
+
+  try {
+    const res = await fetch("/audit/verify");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+
+    if (data.verified) {
+      if (banner) {
+        banner.className = "audit-verify-banner valid";
+        banner.innerHTML = `<strong>VALID — Audit chain intact.</strong> All ${data.total_records || "—"} records verified with intact SHA-256 hash links. Latest: <span class="cell-mono">${escapeHtml((data.latest_hash || "").slice(0, 24))}…</span>`;
+      }
+      if (status) { status.innerText = "VERIFIED"; status.className = "summary-value summary-green"; }
+
+      const latestEl = document.getElementById("auditLatestHash");
+      if (latestEl) latestEl.innerText = (data.latest_hash || "—").slice(0, 32) + "…";
+
+      showToast("Hash chain integrity verified — audit trail is tamper-free.", "success");
+    } else {
+      if (banner) {
+        banner.className = "audit-verify-banner tampered";
+        banner.innerHTML = `<strong>INVALID — Audit integrity violation detected.</strong> ${escapeHtml(data.detail || "Hash chain broken.")}`;
+      }
+      if (status) { status.innerText = "INVALID"; status.className = "summary-value summary-red"; }
+      showToast("Audit integrity check failed — tampering detected.", "danger");
+    }
+  } catch {
+    if (banner) {
+      banner.className = "audit-verify-banner tampered";
+      banner.innerHTML = "Verification request failed. Please check backend connection.";
+    }
+    showToast("Could not reach audit verification endpoint.", "danger");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = "Verify Hash Chain Integrity"; }
+  }
+}
+
+// ============================================================
+// PAGE 6 — POLICY SIMULATOR
+// ============================================================
+
 async function runPolicySimulation() {
-  const maxRetries = parseInt(document.getElementById("simMaxRetries").value, 10);
-  const approvalThresh = parseFloat(document.getElementById("simApprovalThresh").value);
-  const contactLimit = parseInt(document.getElementById("simContactLimit").value, 10);
-
+  const btn   = document.getElementById("runSimBtn");
   const panel = document.getElementById("simResultsPanel");
-  const btn = document.getElementById("runSimBtn");
 
-  btn.disabled = true;
-  btn.innerHTML = '<span class="sim-btn-icon">⏳</span> Evaluating dataset...';
-  panel.innerHTML = '<div class="loading-state">Running simulation over 5,000 transaction dataset with updated policy rules...</div>';
+  const maxRetries      = parseInt(document.getElementById("simMaxRetries")?.value || "3", 10);
+  const approvalThresh  = parseFloat(document.getElementById("simApprovalThresh")?.value || "5000");
+  const contactLimit    = parseInt(document.getElementById("simContactLimit")?.value || "2", 10);
+
+  if (btn)   { btn.disabled = true; btn.innerText = "Running simulation…"; }
+  if (panel) { panel.innerHTML = '<div class="loading-state">Evaluating 5,000 transaction dataset with updated policy parameters…</div>'; }
 
   try {
     const res = await fetch("/analytics/simulate-policy", {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        max_retries: maxRetries,
-        approval_threshold_inr: approvalThresh,
-        contact_limit: contactLimit,
+      body:    JSON.stringify({
+        max_retries:              maxRetries,
+        approval_threshold_inr:  approvalThresh,
+        contact_limit:           contactLimit,
       }),
     });
 
     if (!res.ok) {
-      panel.innerHTML = '<div class="empty-cell">Simulation failed to complete.</div>';
+      const err = await safeParseError(res);
+      if (panel) panel.innerHTML = `<div class="empty-cell">Simulation failed: ${escapeHtml(err)}</div>`;
+      showToast("Policy simulation failed to complete.", "danger");
       return;
     }
 
     const sim = await res.json();
     renderSimulationResults(sim, panel);
-  } catch (err) {
-    panel.innerHTML = '<div class="empty-cell">Simulation request failed.</div>';
+  } catch {
+    if (panel) panel.innerHTML = '<div class="empty-cell">Simulation request failed. Please check backend connection.</div>';
+    showToast("Network error running simulation.", "danger");
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<span class="sim-btn-icon">⚡</span> Run Policy Simulation';
+    if (btn) { btn.disabled = false; btn.innerText = "Run Policy Simulation"; }
   }
 }
 
-function renderSimulationResults(sim, container) {
+function renderSimulationResults(sim, panel) {
   const cur = cachedSummary || {};
-  const formatINR = (v) => `₹${Number(v || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const simLift = sim.incremental_recovery_lift_pct || 0;
+  const d = (simVal, curVal) => {
+    const diff = (simVal || 0) - (curVal || 0);
+    const cls  = diff > 0 ? "val-pos" : diff < 0 ? "val-neg" : "";
+    const sign = diff >= 0 ? "+" : "";
+    return `<span class="${cls}">${sign}${typeof simVal === "number" && Math.abs(diff) > 0.5 ? diff.toFixed(2) : "—"}</span>`;
+  };
+
+  const simLift    = sim.incremental_recovery_lift_pct || 0;
   const simLiftStr = (simLift >= 0 ? "+" : "") + simLift.toFixed(2) + "%";
 
-  container.innerHTML = `
-    <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text-primary);">
-      Simulation Results Comparison (5,000 Transactions)
-    </h4>
+  panel.innerHTML = `
+    <div style="margin-bottom:14px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+        <h3 style="font-size:14px; font-weight:600; color:var(--text-primary)">Simulation Results</h3>
+        <span class="status-badge badge-warning">SIMULATION</span>
+      </div>
+      <p style="font-size:11px; color:var(--text-muted)">5,000 transaction benchmark dataset. No real transactions executed.</p>
+    </div>
     <table class="sim-comparison-table">
       <thead>
         <tr>
           <th>Metric</th>
-          <th>Active Policy (Default)</th>
+          <th>Current Policy</th>
           <th>Simulated Policy</th>
           <th>Variance</th>
         </tr>
@@ -647,159 +738,352 @@ function renderSimulationResults(sim, container) {
         <tr>
           <td><strong>Total Recovered Revenue</strong></td>
           <td>${formatINR(cur.total_recovered_amount)}</td>
-          <td style="color: var(--accent-primary); font-weight: 600;">${formatINR(sim.total_recovered_amount)}</td>
-          <td>${formatINR((sim.total_recovered_amount || 0) - (cur.total_recovered_amount || 0))}</td>
+          <td style="color:var(--blue);font-weight:600">${formatINR(sim.total_recovered_amount)}</td>
+          <td>${formatINR((sim.total_recovered_amount||0)-(cur.total_recovered_amount||0))}</td>
         </tr>
         <tr>
           <td><strong>Recovery Rate</strong></td>
-          <td>${((cur.recovery_rate || 0) * 100).toFixed(2)}%</td>
-          <td style="font-weight: 600;">${((sim.recovery_rate || 0) * 100).toFixed(2)}%</td>
-          <td>${(((sim.recovery_rate || 0) - (cur.recovery_rate || 0)) * 100).toFixed(2)}%</td>
+          <td>${((cur.recovery_rate||0)*100).toFixed(2)}%</td>
+          <td style="font-weight:600">${((sim.recovery_rate||0)*100).toFixed(2)}%</td>
+          <td>${(((sim.recovery_rate||0)-(cur.recovery_rate||0))*100).toFixed(2)}%</td>
         </tr>
         <tr>
-          <td><strong>Incremental Lift vs Fixed Baseline</strong></td>
-          <td>${((cur.incremental_recovery_lift_pct || 0) >= 0 ? '+' : '') + (cur.incremental_recovery_lift_pct || 0).toFixed(2)}%</td>
-          <td class="${simLift >= 0 ? 'val-pos' : 'val-neg'}">${simLiftStr}</td>
-          <td>${((simLift - (cur.incremental_recovery_lift_pct || 0))).toFixed(2)}%</td>
+          <td><strong>Incremental Lift vs Baseline</strong></td>
+          <td>${((cur.incremental_recovery_lift_pct||0)>=0?"+":"")+(cur.incremental_recovery_lift_pct||0).toFixed(2)}%</td>
+          <td class="${simLift>=0?'val-pos':'val-neg'}">${simLiftStr}</td>
+          <td>${((simLift-(cur.incremental_recovery_lift_pct||0)).toFixed(2))}%</td>
         </tr>
         <tr>
           <td><strong>Net Recovery (After Costs)</strong></td>
           <td>${formatINR(cur.net_recovery)}</td>
           <td>${formatINR(sim.net_recovery)}</td>
-          <td>${formatINR((sim.net_recovery || 0) - (cur.net_recovery || 0))}</td>
+          <td>${formatINR((sim.net_recovery||0)-(cur.net_recovery||0))}</td>
         </tr>
         <tr>
           <td><strong>Approval-Required Actions</strong></td>
           <td>${cur.approval_required_count || 0}</td>
-          <td style="color: var(--accent-warning); font-weight: 600;">${sim.approval_required_count || 0}</td>
-          <td>${(sim.approval_required_count || 0) - (cur.approval_required_count || 0)}</td>
+          <td style="color:var(--amber);font-weight:600">${sim.approval_required_count || 0}</td>
+          <td>${(sim.approval_required_count||0)-(cur.approval_required_count||0)}</td>
         </tr>
         <tr>
           <td><strong>Unsafe Actions Blocked</strong></td>
           <td>${cur.unsafe_actions_blocked || 0}</td>
           <td>${sim.unsafe_actions_blocked || 0}</td>
-          <td>${(sim.unsafe_actions_blocked || 0) - (cur.unsafe_actions_blocked || 0)}</td>
+          <td>${(sim.unsafe_actions_blocked||0)-(cur.unsafe_actions_blocked||0)}</td>
         </tr>
       </tbody>
-    </table>
-  `;
+    </table>`;
 }
 
-// 10. Tamper-Evident Audit Trail & Verification
-async function fetchAuditLogs() {
-  try {
-    const res = await fetch("/audit/logs?limit=50");
-    if (!res.ok) return;
-    const logs = await res.json();
-    const tbody = document.getElementById("auditTableBody");
-    if (!tbody) return;
+// ============================================================
+// DEMO OPERATIONS
+// ============================================================
 
-    if (!logs || logs.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="7" class="empty-cell">No audit log records found.</td>
-        </tr>
-      `;
-      return;
-    }
+async function runDemoTransaction() {
+  const btn = document.getElementById("btnRunDemoTxn");
+  const msg = document.getElementById("demoStatusMsg");
 
-    let html = "";
-    logs.forEach((log) => {
-      const ts = new Date(log.timestamp).toLocaleTimeString();
-      const hashShort = log.current_hash ? log.current_hash.slice(0, 16) + "..." : "GENESIS";
-      html += `
-        <tr>
-          <td>${ts}</td>
-          <td><span class="mono-cell">${escapeHtml(log.event_type)}</span></td>
-          <td class="mono-cell">${escapeHtml(log.transaction_id)}</td>
-          <td><span class="action-label action-${(log.selected_action || "NONE").toLowerCase().replace(/_/g, "-")}">${escapeHtml(log.selected_action || "—")}</span></td>
-          <td><span class="badge ${log.policy_result === 'ALLOW' ? 'badge-allow' : log.policy_result === 'DENY' ? 'badge-deny' : 'badge-approval'}">${escapeHtml(log.policy_result || "—")}</span></td>
-          <td><span class="text-secondary">${escapeHtml(log.execution_result || "—")}</span></td>
-          <td class="hash-cell" title="${escapeHtml(log.current_hash || '')}">${hashShort}</td>
-        </tr>
-      `;
-    });
-    tbody.innerHTML = html;
-  } catch (err) {
-    console.error("Error fetching audit logs:", err);
-  }
-}
-
-async function verifyAuditChain() {
-  const statusBox = document.getElementById("auditVerifyStatusBox");
-  statusBox.classList.remove("hidden");
-  statusBox.className = "audit-verify-banner valid";
-  statusBox.innerHTML = "<span>⏳ Cryptographically verifying SHA-256 hash chain links...</span>";
+  if (btn) { btn.disabled = true; btn.innerText = "Processing…"; }
+  if (msg) { msg.className = "demo-status-msg"; msg.innerText = "Submitting demo transaction…"; msg.classList.remove("hidden"); }
 
   try {
-    const res = await fetch("/audit/verify");
+    const res = await fetch("/recovery/demo/transaction", { method: "POST" });
     if (!res.ok) {
-      statusBox.className = "audit-verify-banner tampered";
-      statusBox.innerHTML = "<span>⚠️ Verification request failed.</span>";
+      const err = await safeParseError(res);
+      showToast(`Demo transaction failed: ${err}`, "danger");
+      if (msg) { msg.className = "demo-status-msg msg-danger"; msg.innerText = `Failed: ${err}`; }
       return;
     }
-
     const data = await res.json();
-    if (data.verified) {
-      statusBox.className = "audit-verify-banner valid";
-      statusBox.innerHTML = `
-        <span>✓ <strong>HASH CHAIN INTEGRITY VERIFIED:</strong> All ${data.total_records} records linked with intact cryptographic SHA-256 hashes. Latest: <code>${(data.latest_hash || "").slice(0, 16)}...</code></span>
-      `;
-      showToast("Audit chain verified: 100% cryptographic integrity.", "success");
-    } else {
-      statusBox.className = "audit-verify-banner tampered";
-      statusBox.innerHTML = `
-        <span>⚠️ <strong>TAMPER DETECTED:</strong> ${escapeHtml(data.detail)}</span>
-      `;
-      showToast("Audit integrity check failed — tampering detected!", "danger");
-    }
-  } catch (err) {
-    statusBox.className = "audit-verify-banner tampered";
-    statusBox.innerHTML = "<span>⚠️ Verification network error.</span>";
+    const info = `Demo payment ${data.payment_id} (${formatINR(data.amount)}) ingested — paused at Human Approval Gate (${data.reason}).`;
+    showToast(info, "info");
+    if (msg) { msg.className = "demo-status-msg"; msg.innerText = info + " → Navigate to Approvals to review."; }
+
+    // Refresh overview metrics and navigate hint
+    await fetchAnalyticsSummary();
+    await fetchRecentTransactions();
+    await fetchApprovals();
+  } catch {
+    showToast("Network error executing demo transaction.", "danger");
+    if (msg) { msg.className = "demo-status-msg msg-danger"; msg.innerText = "Network error. Check backend connection."; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = "Run Demo Transaction"; }
   }
 }
 
-// 11. Kill Switch Controls
+async function runBlockedScenario() {
+  const btn1 = document.getElementById("btnRunBlockedDemo");
+  const btn2 = document.getElementById("btnRunBlockedDemo2");
+  const msg  = document.getElementById("demoStatusMsg");
+
+  [btn1, btn2].forEach(b => { if (b) { b.disabled = true; b.innerText = "Running…"; } });
+  if (msg) { msg.className = "demo-status-msg"; msg.innerText = "Running blocked scenario…"; msg.classList.remove("hidden"); }
+
+  try {
+    const res = await fetch("/recovery/demo/blocked", { method: "POST" });
+    if (!res.ok) {
+      const err = await safeParseError(res);
+      showToast(`Blocked scenario failed: ${err}`, "danger");
+      if (msg) { msg.className = "demo-status-msg msg-danger"; msg.innerText = `Failed: ${err}`; }
+      return;
+    }
+    const data = await res.json();
+    const info = `Payment ${data.payment_id} BLOCKED by Policy Engine: ${data.reason}`;
+    showToast(info, "danger");
+    if (msg) { msg.className = "demo-status-msg msg-danger"; msg.innerText = info + " → Navigate to Safety Center to inspect."; }
+
+    await fetchAnalyticsSummary();
+    await fetchRecentTransactions();
+  } catch {
+    showToast("Network error running blocked scenario.", "danger");
+    if (msg) { msg.className = "demo-status-msg msg-danger"; msg.innerText = "Network error. Check backend connection."; }
+  } finally {
+    [btn1, btn2].forEach(b => {
+      if (b) {
+        b.disabled = false;
+        if (b.id === "btnRunBlockedDemo") b.innerText = "Run Blocked Scenario";
+        if (b.id === "btnRunBlockedDemo2") b.innerText = "Run Blocked Scenario";
+      }
+    });
+  }
+}
+
+// ============================================================
+// TRANSACTION DECISION JOURNEY
+// ============================================================
+
+async function inspectTransactionJourney(paymentId) {
+  const modal = document.getElementById("journeyModal");
+  const title = document.getElementById("journeyModalTitle");
+  const body  = document.getElementById("journeyModalBody");
+
+  if (!modal) return;
+
+  if (title) title.innerText = `Decision Journey — ${paymentId}`;
+  if (body)  body.innerHTML  = '<div class="loading-state">Loading complete decision journey and EV evaluation…</div>';
+  modal.classList.remove("hidden");
+
+  try {
+    const res = await fetch(`/recovery/transaction/${encodeURIComponent(paymentId)}/journey`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (body) renderJourneyTimeline(data, body);
+  } catch {
+    if (body) body.innerHTML = '<div class="empty-cell">Could not load decision journey for this transaction.</div>';
+  }
+}
+
+function renderJourneyTimeline(data, container) {
+  const p       = data.payment           || {};
+  const d       = data.diagnosis         || {};
+  const pol     = data.policy_evaluation || {};
+  const outcome = data.outcome           || {};
+  const evList  = data.candidate_actions || [];
+  const audits  = data.audit_trail       || [];
+
+  // EV table
+  let evTable = "";
+  if (evList.length) {
+    evTable = `
+      <div class="step-detail" style="margin-top:8px">
+        <table class="sim-comparison-table" style="margin-top:4px">
+          <thead>
+            <tr>
+              <th>Candidate Action</th>
+              <th>P(Recovery)</th>
+              <th>Action Cost</th>
+              <th>Friction</th>
+              <th>Net EV</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${evList.map(c => `
+              <tr style="${c.action === data.recommended_action ? 'background:var(--blue-dim);' : ''}">
+                <td><span class="action-label ${getActionCss(c.action)}">${escapeHtml(c.action)}</span>
+                  ${c.action === data.recommended_action ? ' <strong style="font-size:10px;color:var(--blue)">← SELECTED</strong>' : ''}
+                </td>
+                <td>${(c.p_recovery * 100).toFixed(1)}%</td>
+                <td>${formatINR(c.action_cost)}</td>
+                <td>${formatINR(c.customer_friction)}</td>
+                <td class="${c.expected_value >= 0 ? 'val-pos' : 'val-neg'}">${formatINR(c.expected_value)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // Audit hashes
+  const auditHtml = audits.map(a => `
+    <div class="step-detail" style="font-family:var(--font-mono); font-size:10px">
+      [${escapeHtml(a.event_type)}] Hash: ${escapeHtml((a.current_hash || "").slice(0, 24))}…
+    </div>`).join("");
+
+  container.innerHTML = `
+    <div class="timeline">
+
+      <div class="timeline-step completed">
+        <div class="timeline-dot"></div>
+        <div class="step-label">1. Payment Failure Ingested</div>
+        <div class="step-desc">₹${Number(p.amount||0).toLocaleString("en-IN",{minimumFractionDigits:2})} via ${escapeHtml(p.payment_method||"CARD")} recorded as failed.</div>
+        <div class="step-detail">Failure code: <code>${escapeHtml(p.failure_code||"UNKNOWN")}</code> | Retry attempt: ${p.retry_count||0}</div>
+      </div>
+
+      <div class="timeline-step completed">
+        <div class="timeline-dot"></div>
+        <div class="step-label">2. Root-Cause Diagnosed</div>
+        <div class="step-desc">Classified as: <strong>${escapeHtml(d.human_readable||d.failure_category||"Unknown")}</strong> (Confidence: ${((d.confidence||0)*100).toFixed(0)}%)</div>
+      </div>
+
+      <div class="timeline-step completed">
+        <div class="timeline-dot"></div>
+        <div class="step-label">3. Candidate Actions &amp; Expected-Value Ranking</div>
+        <div class="step-desc">All recovery candidates evaluated against the recoverability model and operational costs.</div>
+        ${evTable}
+      </div>
+
+      <div class="timeline-step completed">
+        <div class="timeline-dot"></div>
+        <div class="step-label">4. AI Recommendation Produced</div>
+        <div class="step-desc">Optimal action selected: <span class="action-label ${getActionCss(data.recommended_action)}">${escapeHtml(data.recommended_action||"STOP")}</span>
+          (Net EV: ${formatINR(data.selected_expected_value)})</div>
+        ${data.reasoning_summary ? `<div class="step-detail"><strong>Reasoning:</strong> ${escapeHtml(data.reasoning_summary)}</div>` : ""}
+      </div>
+
+      <div class="timeline-step ${pol.result==='ALLOW'?'completed':pol.result==='DENY'?'blocked':'pending'}">
+        <div class="timeline-dot"></div>
+        <div class="step-label">5. Deterministic Policy Validation</div>
+        <div class="step-desc">Policy engine decision: <strong>${escapeHtml(pol.result||"—")}</strong></div>
+        ${pol.violations && pol.violations.length ? `<div class="step-detail" style="color:var(--amber)"><strong>Rules triggered:</strong> ${escapeHtml(pol.violations.join("; "))}</div>` : ""}
+      </div>
+
+      ${pol.result === "NEEDS_HUMAN_APPROVAL" || pol.result === "PENDING_APPROVAL" ? `
+      <div class="timeline-step pending">
+        <div class="timeline-dot"></div>
+        <div class="step-label">6. Human Approval Required</div>
+        <div class="step-desc">Payment exceeds the ₹5,000 high-value threshold. Paused for operator authorization.</div>
+      </div>` : ""}
+
+      <div class="timeline-step ${outcome.recovered ? 'completed' : 'completed'}">
+        <div class="timeline-dot"></div>
+        <div class="step-label">${pol.result === "NEEDS_HUMAN_APPROVAL" ? "7" : "6"}. Orchestration &amp; Outcome</div>
+        <div class="step-desc">
+          Status: <strong>${outcome.recovered ? "RECOVERED" : "EXECUTED"}</strong> |
+          Recovered: <strong>${formatINR(outcome.recovered_amount)}</strong> |
+          Action cost: ${formatINR(outcome.action_cost)}
+        </div>
+      </div>
+
+      <div class="timeline-step completed">
+        <div class="timeline-dot"></div>
+        <div class="step-label">${pol.result === "NEEDS_HUMAN_APPROVAL" ? "8" : "7"}. Cryptographic Audit Record</div>
+        <div class="step-desc">${audits.length} tamper-evident event(s) recorded for this transaction.</div>
+        ${auditHtml}
+      </div>
+
+    </div>`;
+}
+
+function closeJourneyModal() {
+  const modal = document.getElementById("journeyModal");
+  if (modal) modal.classList.add("hidden");
+}
+
+// ============================================================
+// KILL SWITCH
+// ============================================================
+
 async function toggleKillSwitch() {
   const btn = document.getElementById("killSwitchBtn");
-  const isActive = btn.classList.contains("active-kill");
+  const isActive = btn && btn.classList.contains("active");
   const newState = !isActive;
 
   try {
     const res = await fetch(`/security/kill-switch/toggle?enable=${newState}`, { method: "POST" });
-    if (!res.ok) return;
+    if (!res.ok) {
+      showToast("Failed to update kill switch state.", "danger");
+      return;
+    }
     const data = await res.json();
     updateKillSwitchUI(data.active);
-
     showToast(
-      data.active ? "KILL SWITCH ACTIVATED: Automated recovery halted." : "Kill switch deactivated: Normal operations resumed.",
+      data.active
+        ? "KILL SWITCH ACTIVATED — All automated recovery suspended."
+        : "Kill switch deactivated — normal operations resumed.",
       data.active ? "danger" : "success"
     );
-  } catch (err) {
-    showToast("Error updating kill switch state.", "danger");
+  } catch {
+    showToast("Error communicating with kill switch endpoint.", "danger");
   }
 }
 
 function updateKillSwitchUI(active) {
-  const btn = document.getElementById("killSwitchBtn");
-  const text = document.getElementById("killSwitchText");
+  const btn    = document.getElementById("killSwitchBtn");
+  const text   = document.getElementById("killSwitchText");
   const banner = document.getElementById("killSwitchBanner");
 
   if (active) {
-    btn.className = "btn btn-killswitch active-kill";
-    text.innerText = "KILL SWITCH ACTIVE";
-    banner.classList.remove("hidden");
+    if (btn)    btn.classList.add("active");
+    if (text)   text.innerText = "Kill Switch: ACTIVE";
+    if (banner) banner.classList.remove("hidden");
   } else {
-    btn.className = "btn btn-killswitch";
-    text.innerText = "Kill Switch OFF";
-    banner.classList.add("hidden");
+    if (btn)    btn.classList.remove("active");
+    if (text)   text.innerText = "Kill Switch: OFF";
+    if (banner) banner.classList.add("hidden");
   }
 }
 
-// Helpers
-function scrollToSection(id) {
-  const elem = document.getElementById(id);
-  if (elem) elem.scrollIntoView({ behavior: "smooth" });
+// ============================================================
+// HELPERS
+// ============================================================
+
+function getStatusBadge(status) {
+  switch (status) {
+    case "EXECUTED":             return '<span class="status-badge badge-active">EXECUTED</span>';
+    case "RECOVERED":            return '<span class="status-badge badge-active">RECOVERED</span>';
+    case "NEEDS_HUMAN_APPROVAL": return '<span class="status-badge badge-warning">NEEDS APPROVAL</span>';
+    case "BLOCKED":              return '<span class="status-badge badge-blocked">BLOCKED</span>';
+    default:                     return `<span class="status-badge badge-slate">${escapeHtml(status||"FAILED")}</span>`;
+  }
+}
+
+function getPolicyBadge(result) {
+  switch (result) {
+    case "ALLOW": return '<span class="status-badge badge-active">ALLOW</span>';
+    case "DENY":  return '<span class="status-badge badge-blocked">DENY</span>';
+    default:      return result ? `<span class="status-badge badge-warning">${escapeHtml(result)}</span>` : '<span class="text-muted">—</span>';
+  }
+}
+
+function getActionCss(action) {
+  if (!action) return "action-stop";
+  switch (action.toUpperCase()) {
+    case "RETRY_NOW":       return "action-retry-now";
+    case "RETRY_LATER":     return "action-retry-later";
+    case "NOTIFY_CUSTOMER": return "action-notify-customer";
+    case "ESCALATE":        return "action-escalate";
+    default:                return "action-stop";
+  }
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return "—";
+  try {
+    return new Date(isoStr).toLocaleString("en-IN", {
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false
+    });
+  } catch {
+    return isoStr;
+  }
+}
+
+async function safeParseError(res) {
+  try {
+    const data = await res.json();
+    return data.message || data.detail || "Unknown error";
+  } catch {
+    return `HTTP ${res.status}`;
+  }
 }
 
 function showToast(message, type = "info") {
@@ -811,17 +1095,15 @@ function showToast(message, type = "info") {
   toast.innerText = message;
   container.appendChild(toast);
 
-  setTimeout(() => {
-    toast.remove();
-  }, 4000);
+  setTimeout(() => toast.remove(), 5000);
 }
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
   return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/&/g,  "&amp;")
+    .replace(/</g,  "&lt;")
+    .replace(/>/g,  "&gt;")
+    .replace(/"/g,  "&quot;")
+    .replace(/'/g,  "&#039;");
 }
