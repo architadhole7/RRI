@@ -201,3 +201,7 @@ The following are reasonable next steps, **not implemented today**:
 ## Demo
 
 For a live walkthrough, follow the [Live Demo Workflow](#live-demo-workflow) above: Run Demo Transaction → review and approve in the Approvals queue → inspect the transaction's decision journey → trigger the blocked scenario → review it in Safety Center → verify the audit hash chain in Audit & Governance.
+
+### Live Application
+
+[Open RevenueGuard](https://revenueguarda.onrender.com/dashboard/#overview)
