@@ -10,7 +10,8 @@ When a payment fails, merchants lose recoverable revenue every day to two failur
 
 RevenueGuard is a controlled recovery decisioning system: it evaluates revenue at risk, recommends the most valuable permissible intervention, and governs the path from AI recommendation to financial execution.
 
-It is not a chatbot or a simple LLM integration. The AI layer is used for recovery diagnosis, recoverability analysis, and action recommendation, while a deterministic policy engine controls what can actually be executed. High-value or risky actions can require human approval, ensuring that AI never has direct financial execution authority.
+It is not a chatbot or a simple LLM integration. the AI layer is used for recovery diagnosis, recoverability analysis and action recommendation, while a deterministic policy engine controls what can actually be executed. High value or risky actions can require human approval, ensuring that AI never has direct financial execution authority. 
+
 ---
 
 ## Problem Statement
