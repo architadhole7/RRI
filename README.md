@@ -1,6 +1,6 @@
 # RevenueGuard
 
-An AI-assisted revenue recovery decision and orchestration platform that recommends, validates, and safely executes payment recovery actions — with deterministic policy control and human approval at every high-stakes step.
+An AI-powered revenue recovery and governance layer that detects revenue at risk, diagnoses payment failures, selects the right recovery action, and executes bounded recovery workflows with policy controls, human approval, and measurable outcomes.
 
 ---
 
